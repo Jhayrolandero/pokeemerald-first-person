@@ -1,0 +1,10 @@
+# toggle on and straight off without moving: the normal view must come back unchanged
+load littleroot.state
+run 120
+shot rt_before.ppm
+press L 1
+waitmode 4 400
+run 30
+press L 1
+run 300
+shot rt_after.ppm

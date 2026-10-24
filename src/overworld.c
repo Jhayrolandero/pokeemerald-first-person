@@ -14,6 +14,7 @@
 #include "event_scripts.h"
 #include "fake_rtc.h"
 #include "field_camera.h"
+#include "first_person.h"
 #include "field_control_avatar.h"
 #include "field_effect.h"
 #include "field_effect_helpers.h"
@@ -1657,6 +1658,8 @@ static void DoCB1_Overworld(u16 newKeys, u16 heldKeys)
     struct FieldInput inputStruct;
 
     UpdatePlayerAvatarTransitionState();
+    if (FirstPerson_Update(&newKeys, &heldKeys))
+        return;
     FieldClearPlayerInput(&inputStruct);
     FieldGetPlayerInput(&inputStruct, newKeys, heldKeys);
     CancelSignPostMessageBox(&inputStruct);
@@ -1855,8 +1858,11 @@ static void OverworldBasic(void)
     UpdateCameraPanning();
     BuildOamBuffer();
     UpdatePaletteFade();
-    UpdateTilesetAnimations();
-    DoScheduledBgTilemapCopiesToVram();
+    if (!FirstPerson_VramLocked())
+    {
+        UpdateTilesetAnimations();
+        DoScheduledBgTilemapCopiesToVram();
+    }
     // Every minute if no palette fade is active, update TOD blending as needed
     if (!gPaletteFade.active && --gTimeUpdateCounter <= 0)
     {
@@ -2195,11 +2201,14 @@ static void SetFieldVBlankCallback(void)
 static void VBlankCB_Field(void)
 {
     LoadOam();
-    ProcessSpriteCopyRequests();
+    if (!FirstPerson_VramLocked())
+        ProcessSpriteCopyRequests();
     ScanlineEffect_InitHBlankDmaTransfer();
     FieldUpdateBgTilemapScroll();
+    FirstPerson_VBlank();
     TransferPlttBuffer();
-    TransferTilesetAnimsBuffer();
+    if (!FirstPerson_VramLocked())
+        TransferTilesetAnimsBuffer();
 }
 
 static void InitCurrentFlashLevelScanlineEffect(void)

@@ -1,0 +1,21 @@
+# first-person: walk into the house door (warp) while the view is on
+load littleroot.state
+run 120
+press L 1
+waitmode 4 400
+run 20
+press LEFT 3
+run 30
+press LEFT 3
+run 30
+shot fp_warp_00_facing_door.ppm
+press UP 2
+waitflip 200
+run 10
+shot fp_warp_01_in_door.ppm
+run 40
+shot fp_warp_02_during.ppm
+run 100
+shot fp_warp_03_after.ppm
+run 200
+shot fp_warp_04_later.ppm

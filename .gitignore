@@ -66,3 +66,7 @@ tools/aif2pcm/aif2pcm
 *.smolTM
 __pycache__
 .map_version
+
+build.log
+tools/fp_test/fp_harness
+tools/fp_test/*.state

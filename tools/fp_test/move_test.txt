@@ -1,0 +1,37 @@
+# first-person walk: face the lab, step forward x4 (the last one bumps), step back, turn left, turn right
+load littleroot.state
+run 120
+press L 1
+waitmode 4 400
+run 20
+shot fp_move_00_start.ppm
+press UP 2
+waitflip 200
+run 30
+shot fp_move_01_fwd1.ppm
+press UP 2
+waitflip 200
+run 30
+shot fp_move_02_fwd2.ppm
+press UP 2
+waitflip 200
+run 30
+shot fp_move_03_fwd3.ppm
+press UP 2
+run 60
+shot fp_move_04_fwd4_blocked.ppm
+press DOWN 2
+waitflip 200
+run 30
+shot fp_move_05_back.ppm
+press LEFT 1
+waitflip 200
+run 20
+shot fp_move_06_left.ppm
+press RIGHT 1
+waitflip 200
+run 5
+press RIGHT 1
+waitflip 200
+run 20
+shot fp_move_07_right.ppm

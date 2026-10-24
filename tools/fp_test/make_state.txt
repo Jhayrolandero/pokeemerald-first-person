@@ -1,0 +1,1541 @@
+run 600
+press START 3
+run 200
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 6
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press A 2
+run 8
+press B 3
+run 30
+press B 3
+run 30
+press B 3
+run 30
+press B 3
+run 30
+press B 3
+run 30
+press B 3
+run 30
+press B 3
+run 30
+press B 3
+run 30
+press RIGHT 20
+run 30
+press RIGHT 20
+run 30
+press UP 20
+run 30
+press RIGHT 20
+run 30
+press DOWN 20
+run 30
+press RIGHT 20
+run 30
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 12
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+press A 2
+run 14
+run 60
+shot chk0.ppm
+save house.state
+setvar 0x4092 7
+press DOWN 16
+run 200
+press DOWN 16
+run 100
+shot chk.ppm
+save littleroot.state

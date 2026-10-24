@@ -275,6 +275,19 @@ static void GetInFrontOfPlayerPosition(struct MapPosition *position)
         position->elevation = ELEVATION_TRANSITION;
 }
 
+// Used by the first-person view: is there something to talk to / read in front of the player (facing already set)?
+bool8 HasInteractionAheadOfPlayer(void)
+{
+    struct MapPosition position;
+    enum Direction dir = GetPlayerFacingDirection();
+    u8 metatileBehavior;
+
+    GetInFrontOfPlayerPosition(&position);
+    metatileBehavior = MapGridGetMetatileBehaviorAt(position.x, position.y);
+    return GetInteractedObjectEventScript(&position, metatileBehavior, dir) != NULL
+        || GetInteractedBackgroundEventScript(&position, metatileBehavior, dir) != NULL;
+}
+
 static u16 GetPlayerCurMetatileBehavior(int runningState)
 {
     s16 x, y;

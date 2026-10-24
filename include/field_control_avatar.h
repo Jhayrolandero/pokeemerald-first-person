@@ -23,6 +23,7 @@ struct FieldInput
 };
 
 void GetPlayerPosition(struct MapPosition *);
+bool8 HasInteractionAheadOfPlayer(void);
 void FieldClearPlayerInput(struct FieldInput *pStruct);
 void FieldGetPlayerInput(struct FieldInput *pStruct, u16 keys, u16 heldKeys);
 int ProcessPlayerFieldInput(struct FieldInput *pStruct);

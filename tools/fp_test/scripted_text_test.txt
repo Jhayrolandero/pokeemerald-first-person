@@ -1,0 +1,26 @@
+# first-person: step onto the mat in the house, which triggers Mom's scripted text without pressing A
+load house.state
+run 60
+press L 1
+waitmode 4 400
+run 20
+shot fp_text_00_before.ppm
+press LEFT 3
+run 30
+press LEFT 3
+run 30
+shot fp_text_01_facing.ppm
+press UP 2
+run 60
+shot fp_text_02_script.ppm
+run 100
+shot fp_text_03_later.ppm
+press A 3
+run 60
+shot fp_text_04_a1.ppm
+press UP 20
+run 30
+shot fp_text_05_up.ppm
+press L 3
+run 150
+shot fp_text_06_L.ppm

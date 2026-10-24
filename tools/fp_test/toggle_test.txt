@@ -1,0 +1,19 @@
+# Littleroot, outside the player's house. L toggles first-person; screenshots go next to this file.
+load littleroot.state
+run 120
+shot fp_normal_before.ppm
+press L 1
+waitmode 4 400
+run 20
+shot fp_facing_house.ppm
+press RIGHT 1
+waitflip 400
+run 20
+shot fp_facing_open.ppm
+press UP 1
+waitflip 400
+run 20
+shot fp_facing_door.ppm
+press L 1
+run 300
+shot fp_normal_restored.ppm
