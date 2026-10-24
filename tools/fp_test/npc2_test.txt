@@ -1,0 +1,26 @@
+# first-person NPC billboards in Littleroot (no party): walk east along the street, the villagers appear as scaled sprites
+load littleroot.state
+run 120
+press L 3
+waitmode 4 400
+run 30
+press LEFT 8
+run 80
+press UP 8
+run 70
+press UP 8
+run 70
+press UP 8
+run 70
+press UP 8
+run 70
+shot fp_npc_10_east_a.ppm
+press UP 8
+run 70
+shot fp_npc_11_east_b.ppm
+press UP 8
+run 70
+shot fp_npc_12_east_c.ppm
+press RIGHT 8
+run 80
+shot fp_npc_13_south.ppm

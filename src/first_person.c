@@ -4,6 +4,7 @@
 #if OW_FIRST_PERSON
 
 #include "decompress.h"
+#include "constants/event_object_movement.h"
 #include "fieldmap.h"
 #include "event_object_movement.h"
 #include "field_message_box.h"
@@ -11,6 +12,7 @@
 #include "field_control_avatar.h"
 #include "gpu_regs.h"
 #include "main.h"
+#include "sprite.h"
 #include "map_name_popup.h"
 #include "malloc.h"
 #include "metatile_behavior.h"
@@ -71,6 +73,7 @@
 
 struct FpCol
 {
+    u16 z;                            // wall distance (Q8 cells), 0xFFFF = none: billboard depth test
     s16 ytop, ybot;
     u16 zd;                           // z * 256 / FOCAL
     u8 lvl, tx, height, pad;
@@ -86,9 +89,9 @@ struct FpMem
     u8 texNext;
     u8 numSlots;
     u8 slotQ[4096];
-    u8 lut[FP_LEVELS][256];
+    u8 lut[FP_LEVELS][512];
     u16 pal[256];                     // palette uploaded in VBlank
-    u16 srcPal[256];                  // field palette snapshot
+    u16 srcPal[512];                  // BG (0-255) and OBJ (256-511) palette snapshot
     u8 haze[3], skyTop[3];
     u8 hazeSlot, skySlot[FP_HORIZON];
     u8 solid[FP_WIN * FP_WIN];        // per-redraw cache: 0 unknown, 1 empty, 2 solid
@@ -105,6 +108,8 @@ static struct
     u8 page;           // page being displayed
     s16 lastX, lastY;
     u8 lastDir;
+    u32 lastSig;
+    u8 settle;         // frames until a follow-up redraw once an object moved (so it is drawn in its resting pose)
     u8 heading;        // view direction (independent of the player's facing: stepping back does not turn)
     bool8 headingValid;
     bool8 interactPending;  // after the reload, feed one A press to the normal field code
@@ -197,7 +202,7 @@ static const u16 *MetatileData(u32 id)
     return l->secondaryTileset->metatiles + (id - nPri) * NUM_TILES_PER_METATILE;
 }
 
-FP_IWRAM static void ComposeMetatile(u32 id, u8 *out)
+static void ComposeMetatile(u32 id, u8 *out)
 {
     const u16 *mt = MetatileData(id);
     const u32 *tiles = M->tiles;
@@ -283,6 +288,7 @@ static void ComputeColumn(struct FpCol *col, s32 a, s32 px, s32 py, s32 fx, s32 
 {
     s32 z, pcx = px, pcy = py;
 
+    col->z = 0xFFFF;
     col->ytop = col->ybot = FP_HORIZON;
     col->height = 0;
 
@@ -349,6 +355,7 @@ static void ComputeColumn(struct FpCol *col, s32 a, s32 px, s32 py, s32 fx, s32 
             for (i = 0; i < h; i++)
                 col->tex[i] = GetTex(MapGridGetMetatileIdAt(cx, base - i), TRUE);
             col->height = h;
+            col->z = hz;
             col->zd = hz * 256 / FP_FOCAL;
             col->lvl = FogLevel(hz) + (side ? 4 : 0);
             col->ytop = FP_HORIZON - ((h * 256 - FP_EYE) * FP_FOCAL / hz);
@@ -459,6 +466,171 @@ FP_IWRAM static void RenderRows(u8 *vram, s32 px, s32 py, s32 fx, s32 fy, s32 rx
     }
 }
 
+// ---------------------------------------------------------------- billboards
+
+struct FpBill
+{
+    u8 objId;
+    s16 u;         // lateral offset, Q8 cells (+ = right)
+    u16 z;         // depth, Q8 cells
+};
+
+// sprite shape/size -> size in tiles
+static const u8 sTilesW[3][4] = { { 1, 2, 4, 8 }, { 2, 4, 4, 8 }, { 1, 1, 2, 4 } };
+static const u8 sTilesH[3][4] = { { 1, 2, 4, 8 }, { 1, 1, 2, 4 }, { 2, 4, 4, 8 } };
+
+// one screen column of a billboard (hot loop: IWRAM, ARM)
+FP_IWRAM static void BillColumn(u16 *dst, const u8 *col, u32 odd, s32 syFix, s32 hInv, s32 count, s32 wt, s32 h, const u8 *lutRow, u32 palBase, u32 lvl)
+{
+    s32 rowStride = wt * 32;
+
+    while (count-- > 0)
+    {
+        s32 sy = syFix >> 16;
+        u32 nib;
+
+        if (sy >= h)
+            sy = h - 1;
+        nib = col[(sy >> 3) * rowStride + (sy & 7) * 4];
+        nib = odd ? nib >> 4 : nib & 15;
+        if (nib)
+        {
+            u32 slot = lutRow[palBase + nib];
+
+            if (!slot)
+                slot = PixSlot(lvl, palBase + nib);
+            *dst = slot | (slot << 8);
+        }
+        dst += 120;
+        syFix += hInv;
+    }
+}
+
+static void DrawBillboard(u8 *vram, const struct FpBill *b)
+{
+    const struct ObjectEvent *oe = &gObjectEvents[b->objId];
+    const struct Sprite *spr = &gSprites[oe->spriteId];
+    const struct ObjectEventGraphicsInfo *info = GetObjectEventGraphicsInfo(oe->graphicsId);
+    u32 shape = info->oam->shape, size = info->oam->size;
+    s32 wt, ht, w, h, sw, sh, left, top, bottom, c, wInv, hInv, c0, c1;
+    s32 imageValue = 0, tileOffset;
+    const u8 *frame;
+    u8 *temp = NULL;
+    u32 palBase, lvl, hflip;
+
+    if (shape > 2)
+        return;
+    wt = sTilesW[shape][size];
+    ht = sTilesH[shape][size];
+    w = wt * 8;
+    h = ht * 8;
+    if (spr->anims && spr->anims[spr->animNum][spr->animCmdIndex].type >= 0)
+        imageValue = spr->anims[spr->animNum][spr->animCmdIndex].frame.imageValue;
+    hflip = spr->oam.matrixNum & ST_OAM_HFLIP;
+
+    if (spr->usingSheet)
+    {
+        const u8 *base = info->images->data;
+
+        tileOffset = imageValue;
+        if (OW_GFX_COMPRESS && spr->sheetSpan)
+            tileOffset = (imageValue + 1) << spr->sheetSpan;
+        if (tileOffset < 0)
+            tileOffset = 0;
+        if (IsCompressedData(info->images->data))
+        {
+            u32 total = GetDecompressedDataSize(info->images->data);
+
+            if (total > 16384 || !(temp = Alloc(total)))
+                return;
+            DecompressDataWithHeaderWram(info->images->data, temp);
+            base = temp;
+        }
+        frame = base + tileOffset * 32;
+    }
+    else
+    {
+        frame = info->images[imageValue].data;
+    }
+
+    sw = w * 1600 / b->z;
+    sh = h * 1600 / b->z;
+    left = 120 + b->u * FP_FOCAL / b->z - sw / 2;
+    bottom = FP_HORIZON + FP_EYE * FP_FOCAL / b->z;
+    top = bottom - sh;
+    palBase = 256 + spr->oam.paletteNum * 16;
+    lvl = FogLevel(b->z);
+    if (sw < 1 || sh < 1)
+        goto done;
+    wInv = (w << 16) / sw;
+    hInv = (h << 16) / sh;
+    c0 = left / 2;
+    if (c0 < 0)
+        c0 = 0;
+    c1 = (left + sw) / 2 + 1;
+    if (c1 > FP_COLS)
+        c1 = FP_COLS;
+    for (c = c0; c < c1; c++)
+    {
+        s32 sx = ((c * 2 + 1 - left) * wInv) >> 16;
+        s32 y0 = top < 0 ? 0 : top, y1 = bottom > FP_ROWS ? FP_ROWS : bottom;
+
+        if (sx < 0 || sx >= w || b->z >= M->cols[c].z)
+            continue;
+        if (hflip)
+            sx = w - 1 - sx;
+        BillColumn((u16 *)(vram + y0 * 240 + c * 2), frame + (sx >> 3) * 32 + ((sx & 7) >> 1), sx & 1, (y0 - top) * hInv, hInv, y1 - y0, wt, h, M->lut[lvl], palBase, lvl);
+    }
+done:
+    if (temp)
+        Free(temp);
+}
+
+static u32 CollectBillboards(struct FpBill *out, s32 px, s32 py, s32 fx, s32 fy, s32 rx, s32 ry)
+{
+    u32 i, n = 0;
+
+    for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
+    {
+        const struct ObjectEvent *oe = &gObjectEvents[i];
+        s32 dx, dy, z, u, j;
+
+        if (!oe->active || oe->isPlayer || oe->invisible || oe->spriteId >= MAX_SPRITES)
+            continue;
+        dx = (oe->currentCoords.x - px) * 256;
+        dy = (oe->currentCoords.y - py) * 256;
+        z = dx * fx + dy * fy;
+        u = dx * rx + dy * ry;
+        if (z < 128 || z > FP_MAX_Z + 128 || n >= 12)
+            continue;
+        // insertion sort, far to near
+        for (j = n; j > 0 && out[j - 1].z < z; j--)
+            out[j] = out[j - 1];
+        out[j].objId = i;
+        out[j].u = u;
+        out[j].z = z;
+        n++;
+    }
+    return n;
+}
+
+// cheap change signature of everything the billboards depend on (tile, facing, graphics)
+static u32 ObjectSignature(void)
+{
+    u32 i, sig = 0;
+
+    for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
+    {
+        const struct ObjectEvent *oe = &gObjectEvents[i];
+
+        if (!oe->active || oe->isPlayer || oe->invisible)
+            continue;
+        sig += ((oe->currentCoords.x * 31 + oe->currentCoords.y) * 7 + oe->facingDirection) * 3
+             + oe->graphicsId * 5 + (i + 1) * 0x10001;
+    }
+    return sig;
+}
+
 static void Draw(u32 page)
 {
     s32 px, py, fx, fy, rx, ry, c, y;
@@ -504,6 +676,16 @@ static void Draw(u32 page)
         ComputeColumn(&M->cols[c], c * 2 + 1 - 120, px, py, fx, fy, rx, ry);
 
     RenderRows(vram, px, py, fx, fy, rx, ry);
+
+    CpuCopy16(&gPlttBufferFaded[256], &M->srcPal[256], 256 * 2);
+    {
+        struct FpBill bills[12];
+        u32 n = CollectBillboards(bills, px, py, fx, fy, rx, ry), i;
+
+        for (i = 0; i < n; i++)
+            DrawBillboard(vram, &bills[i]);
+    }
+    sFp.lastSig = ObjectSignature();
 }
 
 // ---------------------------------------------------------------- install
@@ -545,7 +727,7 @@ static bool32 Setup(void)
     else
         CpuCopy32(l->secondaryTileset->tiles, &M->tiles[nPri * 8], (NUM_TILES_TOTAL - nPri) * 32);
 
-    CpuCopy16(gPlttBufferFaded, M->srcPal, sizeof(M->srcPal));
+    CpuCopy16(gPlttBufferFaded, M->srcPal, 256 * 2);
 
     // time-of-day / weather tint = faded / unfaded over the primary palettes
     for (i = 0; i < 96; i++)
@@ -771,8 +953,14 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
     }
 
     GetPlayerPosition(&pos);
-    if (atCenter && (sFp.dirty || pos.x != sFp.lastX || pos.y != sFp.lastY || sFp.heading != sFp.lastDir))
+    if (sFp.settle && --sFp.settle == 0)
+        sFp.dirty = TRUE;
+    if (sFp.dirty || (atCenter && (pos.x != sFp.lastX || pos.y != sFp.lastY || sFp.heading != sFp.lastDir)) || ObjectSignature() != sFp.lastSig)
+    {
+        if (ObjectSignature() != sFp.lastSig)
+            sFp.settle = 24;
         RenderBackPage(FALSE);
+    }
     return FALSE;
 }
 

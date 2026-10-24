@@ -1,0 +1,29 @@
+# first-person NPC + follower billboards in Littleroot: walk east along the street, look south at the villager, turn round to see the follower
+load follower.state
+run 120
+press L 3
+waitmode 4 400
+run 30
+press LEFT 8
+run 80
+shot fp_npc_00_east.ppm
+press UP 8
+run 60
+press UP 8
+run 60
+press UP 8
+run 60
+press UP 8
+run 60
+press UP 8
+run 60
+shot fp_npc_01_east_walked.ppm
+press RIGHT 8
+run 80
+shot fp_npc_02_south_villager.ppm
+press RIGHT 8
+run 80
+shot fp_npc_03_west_follower.ppm
+press RIGHT 8
+run 80
+shot fp_npc_04_north.ppm

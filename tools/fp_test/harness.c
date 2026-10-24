@@ -121,6 +121,19 @@ int main(int argc, char **argv) {
                 f++;
             }
             fprintf(stderr, "waitflip: %u frames\n", f);
+        } else if (!strcmp(cmd, "pressflip")) {
+            // pressflip KEYS MAXFRAMES: hold KEYS until the displayed page flips; print frames until the flip (redraw latency)
+            unsigned max, f = 0;
+            sscanf(line, "%*s %255s %u", a, &max);
+            uint16_t start = core->busRead16(core, 0x04000000) & 0x10;
+            core->setKeys(core, parseKeys(a));
+            while (f < max && (core->busRead16(core, 0x04000000) & 0x10) == start) {
+                core->runFrame(core);
+                f++;
+            }
+            core->setKeys(core, 0);
+            for (int i = 0; i < 12; i++) core->runFrame(core);
+            fprintf(stderr, "pressflip: %u frames\n", f);
         } else if (!strcmp(cmd, "peek8")) {
             unsigned addr;
             sscanf(line, "%*s %x", &addr);

@@ -1,0 +1,27 @@
+# gives the player a party via the debug 'Cheat start' and reloads the field so the follower spawns
+load littleroot.state
+run 60
+press R+START 6
+run 30
+press A 3
+run 20
+press DOWN 3
+run 8
+press DOWN 3
+run 8
+press DOWN 3
+run 8
+press DOWN 3
+run 8
+press DOWN 3
+run 8
+press DOWN 3
+run 8
+press A 3
+run 200
+press L 3
+waitmode 4 400
+run 30
+press L 3
+run 300
+save follower.state

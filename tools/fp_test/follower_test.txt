@@ -1,0 +1,19 @@
+# first-person with a party mon: the follower walks behind the player; turn round to see it
+load follower.state
+run 120
+press RIGHT 20
+run 40
+press RIGHT 20
+run 40
+press RIGHT 20
+run 80
+shot fp_npc_follower_normal.ppm
+press L 3
+waitmode 4 400
+run 40
+shot fp_npc_follower_ahead.ppm
+press LEFT 3
+run 80
+press LEFT 3
+run 80
+shot fp_npc_follower_behind.ppm
