@@ -10,6 +10,10 @@
 
 **`pokeemerald-expansion`** offers hundreds of features from various [core series Pokémon games](https://bulbapedia.bulbagarden.net/wiki/Core_series), along with popular quality-of-life enhancements designed to streamline development and improve the player experience. A full list of those features can be found in [`FEATURES.md`](FEATURES.md).
 
+# [First-person view (prototype)](docs/first_person.md)
+
+This fork adds an experimental, togglable first-person overworld view behind `OW_FIRST_PERSON`. See [`docs/first_person.md`](docs/first_person.md).
+
 # [Credits](CREDITS.md)
 
  [![](https://img.shields.io/github/all-contributors/rh-hideout/pokeemerald-expansion/upcoming)](CREDITS.md)
