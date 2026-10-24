@@ -1,6 +1,7 @@
 #include "global.h"
 #include "malloc.h"
 #include "first_person.h"
+#include "text.h"
 #if TESTING
 #include "test/test.h"
 #endif
@@ -153,6 +154,7 @@ void InitHeap(void *heapStart, u32 heapSize)
     sHeapStart = heapStart;
     sHeapSize = heapSize;
     FirstPerson_HeapReset();
+    ForgetAllTextPrinters();
     PutFirstMemBlockHeader(heapStart, heapSize);
 }
 

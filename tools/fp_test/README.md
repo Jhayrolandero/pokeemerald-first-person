@@ -19,3 +19,11 @@ Battle tests: battle_test.txt (wild encounter on Route 101, run away, view retur
   trainer_test.txt saves battle.state, trainer_finish.txt continues from it). Rerun all make_*state.txt after every rebuild.
   harness: walkloop N BLOCK (step until the view leaves Mode 4), watch ADDR|*PTRADDR MAXFRAMES (single-step until a byte changes, prints pc),
   dump ADDR LEN FILE.
+Debugging the "stuck between two frames" report (hang in CB2_ReturnToFieldLocal / flicker loop):
+  syms.txt: arm-none-eabi-nm -n ../../pokeemerald.elf > syms.txt (regenerate after every build; the harness reads static symbols from it)
+  regs [TAG]        print DISPCNT, shadow GPU regs, camera, field callbacks, gMain callbacks, script state (run.sh resolves names)
+  pc / strings / printers / watch / dump / framelog N   locate hangs (cpu pc + stack walk, assert text, text printer list, memory watch)
+  fuzz SEED N       random button mashing (FUZZ_LOG=1 per-action log, FUZZ_NOIDLE=1 skips the idle tail); fuzz_one.sh + fuzz_report.py classify runs
+  regress_stuck.sh  seeds that used to hang in ReturnToField (text printer node alive across the heap wipe)
+  regress_loop.sh   seeds that used to loop view on / reload / view on (house, Mom's mat script after a warp with the view on)
+  mom_test.txt      first-person in the house stepping onto Mom's mat; the script and its text run in the normal view

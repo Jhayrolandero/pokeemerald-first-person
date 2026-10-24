@@ -1,0 +1,25 @@
+# first-person in the house: step onto Mom's mat (scripted text), leave/return around the script, quick A/B presses
+load house.state
+run 60
+press L 8
+waitmode 4 400
+run 20
+press LEFT 8
+run 40
+press LEFT 8
+run 40
+shot fp_mom_00_facing_mat.ppm
+press UP 8
+run 120
+shot fp_mom_01_script_in_normal_view.ppm
+press A 8
+run 60
+press A 8
+run 60
+shot fp_mom_02_text_progress.ppm
+press B 8
+run 40
+press A 8
+run 200
+shot fp_mom_03_settled.ppm
+regs

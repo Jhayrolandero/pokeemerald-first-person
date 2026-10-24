@@ -19,6 +19,7 @@
 #include "overworld.h"
 #include "palette.h"
 #include "script.h"
+#include "text.h"
 #include "constants/global.h"
 
 /*
@@ -833,7 +834,9 @@ static enum Direction OppositeDir(enum Direction d)
 }
 
 // Leave the view and reload the normal field. keepWanted: the view comes back by itself afterwards.
-static bool32 LeaveView(bool32 keepWanted)
+// continueScript: a script has just started; park it while the field reloads and let it run in the normal view
+// (same pattern as the menus use: ScriptContext_Stop + CB2_ReturnToFieldContinueScript).
+static bool32 LeaveView(bool32 keepWanted, bool32 continueScript)
 {
     bool32 wasShown = sFp.shown || sFp.pendingFlip;
 
@@ -844,10 +847,22 @@ static bool32 LeaveView(bool32 keepWanted)
     Release();
     if (!wasShown)
         return FALSE;
-    // The reload re-creates the field's BG tilemap buffers and windows; free the current ones first, like the menus do
+    // CB2_ReturnToField wipes the whole heap (MoveSaveBlocks_ResetHeap in ResetMirageTowerAndSaveBlockPtrs). Anything still
+    // referenced from a static must be released first: the text printer list (a script's message may have just started
+    // printing) would otherwise be freed after the wipe and trip the Free() assert, hanging in CB2_ReturnToFieldLocal.
+    DeactivateAllTextPrinters();
+    // also free the field's BG tilemap buffers and windows, like the menus do
     CleanupOverworldWindowsAndTilemaps();
-    gFieldCallback = NULL;
-    SetMainCallback2(CB2_ReturnToField);
+    if (continueScript)
+    {
+        ScriptContext_Stop();
+        SetMainCallback2(CB2_ReturnToFieldContinueScript);
+    }
+    else
+    {
+        gFieldCallback = NULL;
+        SetMainCallback2(CB2_ReturnToField);
+    }
     return TRUE;
 }
 
@@ -878,12 +893,12 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
     }
     else if (canAct && (nk & L_BUTTON))
     {
-        return LeaveView(FALSE);
+        return LeaveView(FALSE, FALSE);
     }
     else if (sFp.shown && canAct && (nk & (START_BUTTON | SELECT_BUTTON | R_BUTTON)))
     {
         // menus need BG0, which Mode 4 does not have: leave, swallow the press
-        return LeaveView(FALSE);
+        return LeaveView(FALSE, FALSE);
     }
     else if (sFp.shown && canAct && (nk & A_BUTTON))
     {
@@ -893,7 +908,7 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
         if (HasInteractionAheadOfPlayer())
         {
             sFp.interactPending = TRUE;
-            if (!LeaveView(TRUE))
+            if (!LeaveView(TRUE, FALSE))
                 sFp.interactPending = FALSE;
             return TRUE;
         }
@@ -906,11 +921,14 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
         sFp.shown = FALSE;
     }
 
-    if (sFp.shown && !IsFieldMessageBoxHidden())
+    if (sFp.shown && (ScriptContext_IsEnabled() || !IsFieldMessageBoxHidden()))
     {
-        // a script started a text box on its own (trainer, step trigger...): BG0 is not available, so drop to the
-        // normal view for it; the view comes back once the controls are free again
-        return LeaveView(TRUE);
+        // A script started by itself (trainer, step trigger, map script...) or a text box opened: BG0 is not available in
+        // Mode 4, so run it in the normal view and come back afterwards. Reloading mid-script and re-entering the view while
+        // the trigger is still true used to loop forever (view on / reload / view on ...), hence the script is parked, not dropped.
+        bool32 script = ScriptContext_IsEnabled();
+
+        return LeaveView(script, script);
     }
 
     if (sFp.shown)

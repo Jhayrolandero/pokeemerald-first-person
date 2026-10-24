@@ -355,6 +355,13 @@ bool32 IsPlayerTextSpeedInstant(void)
     return GetPlayerTextSpeed() == OPTIONS_TEXT_SPEED_INSTANT;
 }
 
+// The printer list lives in the heap. When the heap is re-initialised (InitHeap, e.g. by ReturnToField / battle start)
+// every node is gone, so the list head must be forgotten or FreeFinishedTextPrinters() would free stale pointers.
+void ForgetAllTextPrinters(void)
+{
+    sFirstTextPrinter = NULL;
+}
+
 void DeactivateAllTextPrinters(void)
 {
     struct TextPrinter *currentPrinter = sFirstTextPrinter;

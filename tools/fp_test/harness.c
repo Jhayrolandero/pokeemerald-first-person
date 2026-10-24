@@ -25,6 +25,16 @@ static uint32_t symbolAddr(const char *name) {
     unsigned a;
     char sym[256];
     uint32_t r = 0;
+    // prefer syms.txt (arm-none-eabi-nm -n output, includes static symbols), fall back to the map file
+    char symPath[512];
+    snprintf(symPath, sizeof symPath, "%.*s/tools/fp_test/syms.txt", (int)(strlen(mapPath) - 14), mapPath);
+    FILE *sf = fopen("syms.txt", "r");
+    if (sf) {
+        unsigned sa; char st[8], sn[256];
+        while (fgets(l, sizeof l, sf))
+            if (sscanf(l, "%x %7s %255s", &sa, st, sn) == 3 && !strcmp(sn, name)) { fclose(sf); if (m) fclose(m); return sa; }
+        fclose(sf);
+    }
     while (m && fgets(l, sizeof l, m))
         if (sscanf(l, " 0x%x %255s", &a, sym) == 2 && !strcmp(sym, name)) { r = a; break; }
     if (m) fclose(m);
@@ -178,6 +188,86 @@ int main(int argc, char **argv) {
               fprintf(stderr, "regs r1=%08x r2=%08x r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x sp=%08x\n", r[1], r[2], r[3], r[4], r[5], r[6], r[7], sp);
               for (int i = 0; i < 12; i++) fprintf(stderr, "stack+%02x=%08x\n", i * 4, core->busRead32(core, sp + i * 4)); }
             fprintf(stderr, "watch: hit=%d frames=%u pc=%08x lr=%08x r0=%08x new=%02x\n", hit, f, pc, lr, r0, core->busRead8(core, addr));
+        } else if (!strcmp(cmd, "regs")) {
+            // regs [TAG]: print display registers and gMain callbacks (resolve with: arm-none-eabi-nm -n pokeemerald.elf)
+            char tag[64] = ""; if (strlen(line) > 5) { snprintf(tag, sizeof tag, "%s", line + 5); tag[strcspn(tag, "\n")] = 0; }
+            uint32_t gm = symbolAddr("gMain");
+            fprintf(stderr, "REGS %s DISPCNT=%04x BGCNT=%04x/%04x/%04x/%04x HOFS=%04x/%04x/%04x/%04x VOFS=%04x/%04x/%04x/%04x WININ=%04x WINOUT=%04x BLDCNT=%04x MOSAIC=%04x\n",
+                    tag, core->busRead16(core, 0x4000000),
+                    core->busRead16(core, 0x4000008), core->busRead16(core, 0x400000A), core->busRead16(core, 0x400000C), core->busRead16(core, 0x400000E),
+                    core->busRead16(core, 0x4000010), core->busRead16(core, 0x4000014), core->busRead16(core, 0x4000018), core->busRead16(core, 0x400001C),
+                    core->busRead16(core, 0x4000012), core->busRead16(core, 0x4000016), core->busRead16(core, 0x400001A), core->busRead16(core, 0x400001E),
+                    core->busRead16(core, 0x4000048), core->busRead16(core, 0x400004A), core->busRead16(core, 0x4000050), core->busRead16(core, 0x400004C));
+            { uint32_t gb = symbolAddr("sGpuRegBuffer"), fo = symbolAddr("sFieldCameraOffset"), hp = symbolAddr("sHorizontalCameraPan"), vp = symbolAddr("sVerticalCameraPan");
+              uint32_t tx = symbolAddr("gTotalCameraPixelOffsetX"), cx = symbolAddr("gSpriteCoordOffsetX");
+              fprintf(stderr, "SHADOW DISPCNT=%04x BGCNT=%04x/%04x/%04x/%04x HOFS=%04x/%04x/%04x/%04x VOFS=%04x/%04x/%04x/%04x locked=%02x\n", gb ? core->busRead16(core, gb) : 0,
+                      core->busRead16(core, gb + 8), core->busRead16(core, gb + 10), core->busRead16(core, gb + 12), core->busRead16(core, gb + 14),
+                      core->busRead16(core, gb + 16), core->busRead16(core, gb + 20), core->busRead16(core, gb + 24), core->busRead16(core, gb + 28),
+                      core->busRead16(core, gb + 18), core->busRead16(core, gb + 22), core->busRead16(core, gb + 26), core->busRead16(core, gb + 30), core->busRead8(core, symbolAddr("sGpuRegBufferLocked")));
+              fprintf(stderr, "CAMERA off=%d,%d tile=%d,%d pan=%d,%d total=%d,%d sprOff=%d,%d\n", core->busRead8(core, fo), core->busRead8(core, fo + 1), core->busRead8(core, fo + 2), core->busRead8(core, fo + 3),
+                      (int16_t)core->busRead16(core, hp), (int16_t)core->busRead16(core, vp), (int16_t)core->busRead16(core, tx), (int16_t)core->busRead16(core, tx + 2), (int16_t)core->busRead16(core, cx), (int16_t)core->busRead16(core, cx + 2)); }
+            fprintf(stderr, "FIELDCB fieldCallback=%08x fieldCallback2=%08x mainState=%u locked=%u\n", core->busRead32(core, symbolAddr("gFieldCallback")), core->busRead32(core, symbolAddr("gFieldCallback2")), core->busRead8(core, gm + 0x438), core->busRead8(core, symbolAddr("sLockFieldControls")));
+            fprintf(stderr, "GMAIN cb1=%08x cb2=%08x saved=%08x vblank=%08x\n", core->busRead32(core, gm), core->busRead32(core, gm + 4), core->busRead32(core, gm + 8), core->busRead32(core, gm + 12));
+        } else if (!strcmp(cmd, "fuzz")) {
+            // fuzz SEED N: N random button actions (hold 1-12 frames, gap 0-25 frames), then idle 600 frames
+            unsigned seed, n;
+            sscanf(line, "%*s %u %u", &seed, &n);
+            srand(seed);
+            static const int keyset[] = { GBA_KEY_L, GBA_KEY_A, GBA_KEY_B, GBA_KEY_START, GBA_KEY_SELECT, GBA_KEY_UP, GBA_KEY_DOWN, GBA_KEY_LEFT, GBA_KEY_RIGHT, GBA_KEY_R, GBA_KEY_UP, GBA_KEY_UP, GBA_KEY_L, GBA_KEY_A };
+            for (unsigned i = 0; i < n; i++) {
+                uint32_t k = 1u << keyset[rand() % (sizeof keyset / sizeof *keyset)];
+                if (rand() % 6 == 0) k |= 1u << keyset[rand() % (sizeof keyset / sizeof *keyset)];
+                core->setKeys(core, k);
+                for (int f = rand() % 12 + 1; f > 0; f--) core->runFrame(core);
+                core->setKeys(core, 0);
+                for (int f = rand() % 26; f > 0; f--) core->runFrame(core);
+                if (getenv("FUZZ_LOG")) {
+                    uint32_t gm = symbolAddr("gMain"), gb = symbolAddr("sGpuRegBuffer");
+                    fprintf(stderr, "FUZZ #%u keys=%03x DISPCNT=%04x shadow=%04x cb2=%08x\n", i, k, core->busRead16(core, 0x4000000), core->busRead16(core, gb), core->busRead32(core, gm + 4));
+                }
+            }
+            core->setKeys(core, 0);
+            if (!getenv("FUZZ_NOIDLE")) for (int f = 0; f < 600; f++) core->runFrame(core);
+        } else if (!strcmp(cmd, "framelog")) {
+            // framelog N: run N frames printing DISPCNT (hardware/shadow) and callbacks each frame
+            unsigned n; sscanf(line, "%*s %u", &n);
+            uint32_t gm = symbolAddr("gMain"), gb = symbolAddr("sGpuRegBuffer");
+            for (unsigned fi = 0; fi < n; fi++) {
+                core->runFrame(core);
+                { uint32_t sc = symbolAddr("sGlobalScriptContext"); fprintf(stderr, "SCRIPT %u status=%u mode=%u scriptPtr=%08x native=%08x\n", fi, core->busRead8(core, symbolAddr("sGlobalScriptContextStatus")), core->busRead8(core, sc + 1), core->busRead32(core, sc + 8), core->busRead32(core, sc + 4)); }
+                fprintf(stderr, "FRAME %u msgbox=%u DISPCNT=%04x shadow=%04x cb2=%08x vblank=%08x\n", fi, core->busRead8(core, symbolAddr("sFieldMessageBoxMode")), core->busRead16(core, 0x4000000), core->busRead16(core, gb), core->busRead32(core, gm + 4), core->busRead32(core, gm + 12));
+            }
+        } else if (!strcmp(cmd, "pc")) {
+            // pc: print cpu registers (sample a few instructions to see where the code is looping) and a stack walk
+            for (int i = 0; i < 6; i++) {
+                uint32_t pc, lr, sp, r0, r1, r2, r3;
+                core->readRegister(core, "pc", &pc); core->readRegister(core, "lr", &lr); core->readRegister(core, "sp", &sp);
+                core->readRegister(core, "r0", &r0); core->readRegister(core, "r1", &r1); core->readRegister(core, "r2", &r2); core->readRegister(core, "r3", &r3);
+                fprintf(stderr, "CPU pc=%08x lr=%08x sp=%08x r0=%08x r1=%08x r2=%08x r3=%08x\n", pc, lr, sp, r0, r1, r2, r3);
+                for (int k = 0; k < 4000; k++) core->step(core);
+            }
+            { uint32_t sp; core->readRegister(core, "sp", &sp);
+              for (int i = 0; i < 300; i++) { uint32_t v = core->busRead32(core, sp + i * 4); if (v >= 0x08000000 && v < 0x0A000000) fprintf(stderr, "STACK+%02x=%08x\n", i * 4, v); } }
+        } else if (!strcmp(cmd, "strings")) {
+            // strings: print ASCII strings pointed to by words in the current stack (find assert messages)
+            uint32_t sp; core->readRegister(core, "sp", &sp);
+            for (int i = 0; i < 400; i++) {
+                uint32_t v = core->busRead32(core, sp + i * 4);
+                if ((v >> 24) == 0x08 || (v >> 24) == 0x02) {
+                    char buf[80]; int ok = 1, n = 0;
+                    for (; n < 79; n++) { uint8_t c = core->busRead8(core, v + n); if (!c) break; if (c < 32 || c > 126) { ok = 0; break; } buf[n] = c; }
+                    buf[n] = 0;
+                    if (ok && n >= 6) fprintf(stderr, "STR sp+%x %08x \"%s\"\n", i * 4, v, buf);
+                }
+            }
+        } else if (!strcmp(cmd, "printers")) {
+            // printers: walk the text printer list (heap nodes) and show each node's heap block header
+            uint32_t p = core->busRead32(core, symbolAddr("sFirstTextPrinter"));
+            for (int i = 0; p && i < 8; i++) {
+                uint32_t h0 = core->busRead32(core, p - 16), h1 = core->busRead32(core, p - 12), h2 = core->busRead32(core, p - 8), h3 = core->busRead32(core, p - 4);
+                fprintf(stderr, "PRINTER node=%08x hdr=%08x %08x size=%u prev=%08x next=%08x isInUse/active byte@+0x1e=%02x nextPrinter=%08x\n", p, h0, h1, h2 & 0x3FFFF, h3, h2, core->busRead8(core, p + 0x1e), core->busRead32(core, p + 0x24));
+                p = core->busRead32(core, p + 0x24);
+            }
         } else if (!strcmp(cmd, "peek8")) {
             unsigned addr;
             sscanf(line, "%*s %x", &addr);
