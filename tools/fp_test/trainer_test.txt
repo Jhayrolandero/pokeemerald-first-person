@@ -1,0 +1,150 @@
+# Route 102 in first-person: a scripted NPC talks (text leaves the view), a trainer spots us, the battle starts. Saves battle.state; trainer_finish.txt continues from it
+load route102.state
+run 60
+press L 8
+waitmode 4 400
+run 30
+shot fp_battle_20_trainer_start.ppm
+walkloop 6 99
+run 150
+shot fp_battle_21_npc_text.ppm
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+waitmode 4 900
+run 150
+shot fp_battle_22_battle_intro_a.ppm
+walkloop 14 99
+run 150
+shot fp_battle_23_battle_intro_b.ppm
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+shot fp_battle_24_battle_menu.ppm
+save battle.state

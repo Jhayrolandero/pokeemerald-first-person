@@ -14,3 +14,8 @@ Taps need >= 3 frames and ~30 frames spacing: input arriving while a redraw bloc
 Slice 3: npc_test.txt (follower.state: walk east, look south/west, follower billboard), npc2_test.txt (littleroot.state, villagers),
   make_follower_state.txt (debug 'Cheat start' gives a party, toggling the view reloads the field so the follower spawns),
   follower_test.txt. harness command: pressflip KEYS MAX = frames from key press until the page flips (redraw latency).
+Battle tests: battle_test.txt (wild encounter on Route 101, run away, view returns; needs route101.state from make_route_state.txt),
+  trainer_test.txt + trainer_finish.txt (Route 102 scripted NPC text and trainer battle; needs route102.state from make_route102_state.txt;
+  trainer_test.txt saves battle.state, trainer_finish.txt continues from it). Rerun all make_*state.txt after every rebuild.
+  harness: walkloop N BLOCK (step until the view leaves Mode 4), watch ADDR|*PTRADDR MAXFRAMES (single-step until a byte changes, prints pc),
+  dump ADDR LEN FILE.

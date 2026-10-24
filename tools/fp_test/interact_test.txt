@@ -4,21 +4,21 @@ run 120
 press L 1
 waitmode 4 400
 run 20
-press LEFT 3
+press LEFT 8
 run 30
-press UP 2
+press UP 8
 waitflip 200
 run 30
-press UP 2
+press UP 8
 waitflip 200
 run 30
-press LEFT 3
+press LEFT 8
 run 40
 shot fp_talk_00_facing_sign.ppm
-press A 3
+press A 8
 run 90
 shot fp_talk_01_text.ppm
-press B 3
+press B 8
 run 60
 shot fp_talk_02_closed.ppm
 run 150

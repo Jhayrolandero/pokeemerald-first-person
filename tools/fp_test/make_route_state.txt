@@ -1,0 +1,51 @@
+# debug-warp to Route 101 (group 0, map 16) with the cheat-start party; saves route101.state
+load follower.state
+run 60
+press R+START 6
+run 30
+press A 3
+run 20
+press DOWN 3
+run 8
+press A 3
+run 20
+press A 3
+run 20
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press UP 3
+run 6
+press A 3
+run 20
+press A 3
+run 300
+shot r0.ppm
+save route101.state

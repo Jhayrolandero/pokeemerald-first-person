@@ -1,0 +1,461 @@
+# finish the trainer battle started by trainer_test.txt and check the view returns
+load battle.state
+press A 4
+run 40
+press DOWN 6
+run 15
+press RIGHT 6
+run 15
+shot fp_battle_25_pick_move.ppm
+press A 4
+run 200
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+press B 3
+run 30
+press A 3
+run 30
+press A 3
+run 30
+shot fp_battle_26_after_battle_text.ppm
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+press B 3
+run 40
+waitmode 4 900
+run 150
+shot fp_battle_27_returned.ppm
+press LEFT 8
+run 80
+shot fp_battle_28_turn.ppm
+press RIGHT 8
+run 80
+shot fp_battle_29_turn_back.ppm

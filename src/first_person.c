@@ -65,9 +65,11 @@
 #define FP_EYE          128           // eye height, Q8 cells
 #define FP_MAX_Z        (6 * 256)
 #define FP_STEP         64
-#define FP_TEX_N        48
+#define FP_TEX_N        40
 #define FP_LEVELS       8             // 4 fog levels x {front, side}
 #define FP_PAGE_SIZE    0xA000
+#define FP_DECOMP_HEADROOM 14000   // the tANS decoder allocates ~11 KB of scratch on top
+#define FP_DECOMP_SLACK 128        // the smol decoder can write a little past the nominal output size
 #define FP_WIN          17            // cached cell window around the player (+-8)
 #define FP_IWRAM        ARM_FUNC __attribute__((section(".iwram.code"))) __attribute__((noinline))
 
@@ -82,7 +84,6 @@ struct FpCol
 
 struct FpMem
 {
-    u32 tiles[NUM_TILES_TOTAL * 8];
     u8 tex[FP_TEX_N][256];
     u16 texId[FP_TEX_N];
     u8 texPin[FP_TEX_N];
@@ -97,6 +98,7 @@ struct FpMem
     u8 solid[FP_WIN * FP_WIN];        // per-redraw cache: 0 unknown, 1 empty, 2 solid
     const u8 *cellTex[FP_WIN * FP_WIN];
     struct FpCol cols[FP_COLS];
+    u32 tiles[];                      // decompressed primary + secondary tileset tiles (size depends on the map)
 };
 
 static struct
@@ -117,6 +119,7 @@ static struct
     u16 mapKey;
     bool8 dirty;
     bool8 vramLock;    // tileset animation uploads must not touch the bitmap pages
+    u32 tileBytes;
     struct FpMem *m;
 } sFp;
 
@@ -532,16 +535,17 @@ static void DrawBillboard(u8 *vram, const struct FpBill *b)
     {
         const u8 *base = info->images->data;
 
+        // In VRAM the sheet is loaded behind one blank frame (hence the +1 in the sprite code), the source has none.
         tileOffset = imageValue;
         if (OW_GFX_COMPRESS && spr->sheetSpan)
-            tileOffset = (imageValue + 1) << spr->sheetSpan;
+            tileOffset = imageValue << spr->sheetSpan;
         if (tileOffset < 0)
             tileOffset = 0;
         if (IsCompressedData(info->images->data))
         {
             u32 total = GetDecompressedDataSize(info->images->data);
 
-            if (total > 16384 || !(temp = Alloc(total)))
+            if (total > 16384 || GetLargestFreeHeapBlock() < total + FP_DECOMP_HEADROOM || !(temp = AllocUnchecked(total + FP_DECOMP_SLACK)))
                 return;
             DecompressDataWithHeaderWram(info->images->data, temp);
             base = temp;
@@ -705,17 +709,29 @@ static bool32 Setup(void)
 {
     const struct MapLayout *l = gMapHeader.mapLayout;
     u32 nPri = GetNumTilesInPrimary(l);
+    u32 secBytes = l->secondaryTileset->isCompressed ? GetDecompressedDataSize(l->secondaryTileset->tiles) : (NUM_TILES_TOTAL - nPri) * 32;
+    u32 tileBytes = (nPri * 32 + secBytes + FP_DECOMP_SLACK + 3) & ~3;
     s32 i, ratio[3], sumU[3] = {0, 0, 0}, sumF[3] = {0, 0, 0};
 
+    if (M && tileBytes > sFp.tileBytes)
+    {
+        Free(M);   // a bigger tileset than the block was made for (warp): reallocate
+        M = NULL;
+    }
     if (!M)
     {
-        M = AllocZeroed(sizeof(struct FpMem));
+        if (GetLargestFreeHeapBlock() < sizeof(struct FpMem) + tileBytes + FP_DECOMP_HEADROOM + 4096)
+            return FALSE;   // not enough heap: stay in the normal view instead of crashing
+        M = AllocZeroedUnchecked(sizeof(struct FpMem) + tileBytes);
         if (!M)
             return FALSE;
+        sFp.tileBytes = tileBytes;
     }
     else
     {
         memset(M->texId, 0, sizeof(M->texId));
+        if (GetLargestFreeHeapBlock() < FP_DECOMP_HEADROOM)
+            return FALSE;
     }
 
     if (l->primaryTileset->isCompressed)
@@ -725,7 +741,7 @@ static bool32 Setup(void)
     if (l->secondaryTileset->isCompressed)
         DecompressDataWithHeaderWram(l->secondaryTileset->tiles, &M->tiles[nPri * 8]);
     else
-        CpuCopy32(l->secondaryTileset->tiles, &M->tiles[nPri * 8], (NUM_TILES_TOTAL - nPri) * 32);
+        CpuCopy32(l->secondaryTileset->tiles, &M->tiles[nPri * 8], secBytes);
 
     CpuCopy16(gPlttBufferFaded, M->srcPal, 256 * 2);
 
@@ -828,6 +844,8 @@ static bool32 LeaveView(bool32 keepWanted)
     Release();
     if (!wasShown)
         return FALSE;
+    // The reload re-creates the field's BG tilemap buffers and windows; free the current ones first, like the menus do
+    CleanupOverworldWindowsAndTilemaps();
     gFieldCallback = NULL;
     SetMainCallback2(CB2_ReturnToField);
     return TRUE;
@@ -891,8 +909,8 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
     if (sFp.shown && !IsFieldMessageBoxHidden())
     {
         // a script started a text box on its own (trainer, step trigger...): BG0 is not available, so drop to the
-        // normal view for it and stay there (press L to come back)
-        return LeaveView(FALSE);
+        // normal view for it; the view comes back once the controls are free again
+        return LeaveView(TRUE);
     }
 
     if (sFp.shown)

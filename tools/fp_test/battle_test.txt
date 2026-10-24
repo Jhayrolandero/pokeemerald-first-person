@@ -1,0 +1,41 @@
+# Route 101 in first-person: walk into the tall grass until a wild battle starts, run away, check the view returns
+load route101.state
+run 60
+press L 8
+waitmode 4 400
+run 30
+shot fp_battle_00_start.ppm
+press LEFT 8
+run 60
+shot fp_battle_01_heading.ppm
+walkloop 120 4
+shot fp_battle_02_transition.ppm
+run 120
+shot fp_battle_03_battle_a.ppm
+run 200
+shot fp_battle_04_battle_b.ppm
+press A 3
+run 200
+shot fp_battle_05_menu.ppm
+press RIGHT 8
+run 20
+press RIGHT 8
+run 20
+press DOWN 8
+run 20
+press DOWN 8
+run 20
+shot fp_battle_06_run_selected.ppm
+press A 3
+run 120
+press A 3
+run 60
+waitmode 4 900
+run 60
+shot fp_battle_07_returned.ppm
+press UP 8
+run 80
+shot fp_battle_08_step_after.ppm
+press LEFT 8
+run 80
+shot fp_battle_09_turn_after.ppm

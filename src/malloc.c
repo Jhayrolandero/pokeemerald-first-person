@@ -156,6 +156,23 @@ void InitHeap(void *heapStart, u32 heapSize)
     PutFirstMemBlockHeader(heapStart, heapSize);
 }
 
+// Size of the largest free block. Used by the first-person view to check headroom before allocating.
+u32 GetLargestFreeHeapBlock(void)
+{
+    const struct MemBlock *head = (const struct MemBlock *)sHeapStart;
+    const struct MemBlock *block = head;
+    u32 largest = 0;
+
+    do
+    {
+        if (!block->allocated && block->size > largest)
+            largest = block->size;
+        block = block->next;
+    }
+    while (block != head);
+    return largest;
+}
+
 void PrintHeap(void)
 {
     const struct MemBlock *head = HeapHead();

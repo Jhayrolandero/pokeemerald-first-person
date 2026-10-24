@@ -41,6 +41,8 @@ struct MemBlock
     u8 data[0];
 };
 
+u32 GetLargestFreeHeapBlock(void);
+
 #define HEAP_SIZE 0x1C500
 extern u8 gHeap[HEAP_SIZE];
 

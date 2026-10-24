@@ -134,6 +134,50 @@ int main(int argc, char **argv) {
             core->setKeys(core, 0);
             for (int i = 0; i < 12; i++) core->runFrame(core);
             fprintf(stderr, "pressflip: %u frames\n", f);
+        } else if (!strcmp(cmd, "walkloop")) {
+            // walkloop N BLOCK: step Up for BLOCK steps, then Down for BLOCK steps, and so on, up to N steps; stops as soon as DISPCNT leaves Mode 4
+            unsigned n, blk = 1, i, f, left = 0;
+            sscanf(line, "%*s %u %u", &n, &blk);
+            for (i = 0; i < n && !left; i++) {
+                core->setKeys(core, (i / blk) & 1 ? 1 << GBA_KEY_DOWN : 1 << GBA_KEY_UP);
+                for (f = 0; f < 8; f++) core->runFrame(core);
+                core->setKeys(core, 0);
+                for (f = 0; f < 30; f++) {
+                    core->runFrame(core);
+                    if ((core->busRead16(core, 0x04000000) & 7) != 4) { left = 1; break; }
+                }
+            }
+            fprintf(stderr, "walkloop: %u steps, left mode 4: %u\n", i, left);
+        } else if (!strcmp(cmd, "dump")) {
+            // dump ADDR LEN FILE: write guest memory to a file
+            unsigned addr, len;
+            sscanf(line, "%*s %x %u %255s", &addr, &len, a);
+            FILE *o = fopen(a, "wb");
+            for (unsigned i = 0; i < len; i++) fputc(core->busRead8(core, addr + i), o);
+            fclose(o);
+        } else if (!strcmp(cmd, "watch")) {
+            // watch ADDR MAXFRAMES: single-step until the byte at ADDR changes; print pc/lr (find who overwrites memory)
+            unsigned addr, max, f = 0;
+            if (strchr(line, '*')) { sscanf(strchr(line, '*') + 1, "%x %u", &addr, &max); addr = core->busRead32(core, addr); }
+            else sscanf(line, "%*s %x %u", &addr, &max);
+            uint8_t start = core->busRead8(core, addr);
+            int hit = 0;
+            while (f < max && !hit) {
+                int32_t fc = core->frameCounter(core);
+                while (core->frameCounter(core) == fc) {
+                    core->step(core);
+                    if (core->busRead8(core, addr) != start) { hit = 1; break; }
+                }
+                f++;
+            }
+            uint32_t pc = 0, lr = 0, r0 = 0;
+            core->readRegister(core, "pc", &pc);
+            core->readRegister(core, "lr", &lr);
+            core->readRegister(core, "r0", &r0);
+            { uint32_t r[8], sp = 0; char nm[4]; for (int i = 1; i < 8; i++) { snprintf(nm, 4, "r%d", i); core->readRegister(core, nm, &r[i]); } core->readRegister(core, "sp", &sp);
+              fprintf(stderr, "regs r1=%08x r2=%08x r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x sp=%08x\n", r[1], r[2], r[3], r[4], r[5], r[6], r[7], sp);
+              for (int i = 0; i < 12; i++) fprintf(stderr, "stack+%02x=%08x\n", i * 4, core->busRead32(core, sp + i * 4)); }
+            fprintf(stderr, "watch: hit=%d frames=%u pc=%08x lr=%08x r0=%08x new=%02x\n", hit, f, pc, lr, r0, core->busRead8(core, addr));
         } else if (!strcmp(cmd, "peek8")) {
             unsigned addr;
             sscanf(line, "%*s %x", &addr);

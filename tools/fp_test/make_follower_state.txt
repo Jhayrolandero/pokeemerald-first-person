@@ -24,4 +24,5 @@ waitmode 4 400
 run 30
 press L 3
 run 300
+shot fs.ppm
 save follower.state

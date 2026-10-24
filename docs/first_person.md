@@ -32,7 +32,7 @@ Code: `src/first_person.c`, `include/first_person.h`, hooks in `src/overworld.c`
   A per-redraw 255-colour palette is built on the fly, with distance fog and the time-of-day tint.
 - NPC, trainer and follower object events are scaled in software and depth-tested against wall distance.
 - Redraws only on toggle, step, turn or when a visible object changes (5 to 13 frames per redraw).
-- Cost: about 60 KB of heap while active, all of VRAM is overwritten (leaving reloads the field like a menu return), about 300 bytes of IWRAM for the hot loop.
+- Cost: about 46 KB of heap while active, all of VRAM is overwritten (leaving reloads the field like a menu return), about 300 bytes of IWRAM for the hot loop.
 
 ## Limitations
 
@@ -41,7 +41,7 @@ Code: `src/first_person.c`, `include/first_person.h`, hooks in `src/overworld.c`
 - Billboards do not rotate with facing, have no shadows; water does not animate; side/back building faces reuse the front art.
 - Tree vs building is told apart by a metatile id heuristic.
 - IWRAM is nearly full (about 2.9 KB spare); adding IWRAM code can crash the game at boot.
-- Battles and wild encounters in first-person have not been tested.
+- A wild encounter (run away) and a trainer battle (win) were tested in first-person and return to the view; other heap-heavy flows are untested. NPCs and followers are skipped if under ~14 KB of heap is free.
 
 ## Test harness
 
