@@ -1729,10 +1729,12 @@ FP_IWRAM static void FloorRows(u8 *vram, s32 camX, s32 camY, s32 dirX, s32 dirY,
     }
 }
 
-// One wall strip (FP_SMOOTH_COLW pixels wide), rows y0..y1-1: the hot loop, kept in IWRAM.
-FP_IWRAM static void WallStrip(u8 *dst, s32 count, const struct FpFace *face, s32 tx, s32 pos, s32 step, const u8 *lutRow, u32 lvl)
+// One wall strip (FP_SMOOTH_COLW pixels wide), rows y0..y1-1, two rows per sample: the hot loop, kept in IWRAM.
+// wide = 4 px; otherwise 2 px (dst points at the 2 px half of a near-field column).
+FP_IWRAM static void WallStrip(u8 *dst, s32 count, const struct FpFace *face, s32 tx, s32 pos, s32 step, const u8 *lutRow, u32 lvl, bool32 wide)
 {
     s32 tmax = face->h * 16 - 1;
+    u32 *d = (u32 *)dst;
 
     while (count-- > 0)
     {
@@ -1745,20 +1747,182 @@ FP_IWRAM static void WallStrip(u8 *dst, s32 count, const struct FpFace *face, s3
         slot = lutRow[pix];
         if (!slot)
             slot = PixSlot(lvl, pix);
-#if FP_SMOOTH_COLW == 4
-        *(u32 *)dst = slot * 0x01010101;
-#if FP_SMOOTH_ROWH == 2
-        *(u32 *)(dst + 240) = slot * 0x01010101;
-#endif
-#else
-        *(u16 *)dst = slot * 0x0101;
-#if FP_SMOOTH_ROWH == 2
-        *(u16 *)(dst + 240) = slot * 0x0101;
-#endif
-#endif
-        dst += 240 * FP_SMOOTH_ROWH;
-        pos += step * FP_SMOOTH_ROWH;
+        if (wide)
+        {
+            slot *= 0x01010101;
+            d[0] = slot;
+            d[60] = slot;
+        }
+        else
+        {
+            slot *= 0x0101;
+            *(u16 *)d = slot;
+            *(u16 *)((u8 *)d + 240) = slot;
+        }
+        d += 120;
+        pos += step * 2;
     }
+}
+
+// Mid/near-field detail: a 4 px column whose centre ray hits a wall at FP_NEAR_LO <= perp < FP_NEAR_HI (Q8 cells) is cast again as two
+// 2 px columns with 1-row blocks. A texel is 1600/perp px wide: below ~4 px (perp >= 400) the 4x2 blocks drop texture detail; closer than
+// FP_NEAR_LO the texels are wider than the block anyway, and the wall is tall (expensive), so it stays cheap.
+#define FP_NEAR_LO      400
+#define FP_NEAR_HI      500
+EWRAM_DATA u16 gFpNearOff = 0;   // debug: the test harness writes 1 to see the view without the near-field columns, 2 = 1 plus one redraw
+
+struct FpCast
+{
+    s32 camX, camY, dirX, dirY, planeX, planeY;
+};
+
+struct FpWall
+{
+    const struct FpFace *face;
+    s32 tx, y0, y1, p0, step, lvl, ytopQ8, mapX, mapY, perp;
+    u16 zFar, zScen;
+    bool8 hit, side, flip;
+};
+
+// Casts the ray through the screen offset px2 (half pixels from the centre) and fills
+// the wall strip parameters. rh = rows per sample (1 or 2): y0 is aligned down to it, y1 is the exact bottom (clamped).
+static void CastCol(const struct FpCast *cs, s32 px2, s32 rh, struct FpWall *w)
+{
+    s32 camx = (px2 * 273) >> 8;                       // (px2 / 2) * 546 >> 8
+    s32 rayX = cs->dirX + (cs->planeX * camx >> 8), rayY = cs->dirY + (cs->planeY * camx >> 8);
+    s32 mapX = cs->camX >> 8, mapY = cs->camY >> 8;
+    s32 fracX = cs->camX & 255, fracY = cs->camY & 255;
+    s32 aX = rayX < 0 ? -rayX : rayX, aY = rayY < 0 ? -rayY : rayY;
+    s32 deltaX = aX ? M->recipRay[aX > 511 ? 511 : aX] : 0x3FFFFFFF;
+    s32 deltaY = aY ? M->recipRay[aY > 511 ? 511 : aY] : 0x3FFFFFFF;
+    s32 stepX = rayX < 0 ? -1 : 1, stepY = rayY < 0 ? -1 : 1;
+    s32 sideX = rayX < 0 ? (fracX * deltaX) >> 8 : ((256 - fracX) * deltaX) >> 8;
+    s32 sideY = rayY < 0 ? (fracY * deltaY) >> 8 : ((256 - fracY) * deltaY) >> 8;
+    s32 side = 0, i, perp = 0;
+    u32 k;
+
+    w->hit = FALSE;
+    w->zFar = 0xFFFF;
+    w->zScen = 0xFFFF;
+    w->y0 = w->y1 = FP_HORIZON;
+    for (i = 0; i < 9; i++)
+    {
+        if (sideX < sideY)
+        {
+            sideX += deltaX;
+            mapX += stepX;
+            side = 0;
+        }
+        else
+        {
+            sideY += deltaY;
+            mapY += stepY;
+            side = 1;
+        }
+        k = CellKind(sFp.winX, sFp.winY, mapX, mapY);
+        if (k == 2)
+        {
+            w->hit = TRUE;
+            break;
+        }
+        if (k == 3)
+        {
+            s32 zNow = side == 0 ? sideX - deltaX : sideY - deltaY;
+
+            if (zNow >= FP_SCENERY_WALL)
+            {
+                w->hit = TRUE;   // far scenery is a cheap wall block (the billboards would cost too much, and the trees are small there)
+                break;
+            }
+            if (w->zScen == 0xFFFF)
+                w->zScen = zNow + FP_SCENERY_DEPTH;
+        }
+    }
+    if (!w->hit)
+        return;
+    {
+        const struct FpFace *face = GetFace(mapX, mapY);
+        s32 u, tx, ytopQ8, ybotQ8, y0, y1;
+
+        perp = side == 0 ? sideX - deltaX : sideY - deltaY;
+        if (perp < 40)
+            perp = 40;
+        if (side == 0)
+        {
+            tx = ((cs->camY + (perp * rayY >> 8)) & 255) >> 4;
+            if (rayX < 0)
+                tx = 15 - tx;
+        }
+        else
+        {
+            tx = ((cs->camX + (perp * rayX >> 8)) & 255) >> 4;
+            if (rayY > 0)
+                tx = 15 - tx;
+        }
+        u = M->recipPerp[perp > 2559 ? 2559 : perp] << 2;     // pixels per cell, Q8
+        ybotQ8 = FP_HORIZON * 256 + u / 2;
+        ytopQ8 = FP_HORIZON * 256 - u * (2 * face->h - 1) / 2;
+        w->step = (perp * 10486) >> 8;                        // texels per pixel, Q16 (2^28 / u)
+        y0 = ytopQ8 < 0 ? 0 : ytopQ8 >> 8;
+        y0 &= ~(rh - 1);
+        w->p0 = (s32)(((s64)((y0 * 256 + 128 * rh) - ytopQ8) * w->step) >> 8);
+        if (w->p0 < 0)
+            w->p0 = 0;
+        y1 = ybotQ8 >> 8;
+        if (y1 > FP_ROWS)
+            y1 = FP_ROWS;
+        w->face = face;
+        w->ytopQ8 = ytopQ8;
+        w->mapX = mapX;
+        w->mapY = mapY;
+        w->side = side;
+        w->perp = perp;
+        w->flip = side == 0 ? rayX < 0 : rayY > 0;
+        w->tx = tx;
+        w->y0 = y0;
+        w->y1 = y1;
+        w->lvl = FogLevel(perp) + (side ? 4 : 0);
+        w->zFar = perp;
+    }
+}
+
+// A sub column of a column whose centre ray already hit a wall: the depth (perp) of a flat wall is the same for every ray, so when the
+// hit point of the sub ray is still inside the same wall face only the texture column changes. Falls back to a full cast otherwise.
+static void SubCol(const struct FpCast *cs, s32 px2, s32 rh, const struct FpWall *cw, struct FpWall *w)
+{
+    s32 camx = (px2 * 273) >> 8;
+    s32 rayX = cs->dirX + (cs->planeX * camx >> 8), rayY = cs->dirY + (cs->planeY * camx >> 8);
+    s32 perp = cw->perp, tx, h, y0;
+
+    if (cw->side == 0)
+    {
+        h = cs->camY + (perp * rayY >> 8);
+        if ((h >> 8) != cw->mapY || (rayX < 0) != cw->flip)
+            goto full;
+        tx = (h & 255) >> 4;
+        if (rayX < 0)
+            tx = 15 - tx;
+    }
+    else
+    {
+        h = cs->camX + (perp * rayX >> 8);
+        if ((h >> 8) != cw->mapX || (rayY > 0) != cw->flip)
+            goto full;
+        tx = (h & 255) >> 4;
+        if (rayY > 0)
+            tx = 15 - tx;
+    }
+    *w = *cw;
+    w->tx = tx;
+    y0 = cw->ytopQ8 < 0 ? 0 : cw->ytopQ8 >> 8;
+    y0 &= ~(rh - 1);
+    w->y0 = y0;
+    w->p0 = (s32)(((s64)((y0 * 256 + 128 * rh) - cw->ytopQ8) * cw->step) >> 8);
+    if (w->p0 < 0)
+        w->p0 = 0;
+    return;
+full:
+    CastCol(cs, px2, rh, w);
 }
 
 static void DrawSmooth(u32 page)
@@ -1768,124 +1932,85 @@ static void DrawSmooth(u32 page)
     s32 dirX = SinB(a), dirY = -CosB(a), rightX = CosB(a), rightY = SinB(a);
     s32 planeX = rightX * FP_PLANE >> 8, planeY = rightY * FP_PLANE >> 8;
     s32 camX = sFp.camX, camY = sFp.camY;
-    s32 fracX = camX & 255, fracY = camY & 255;
     s32 c;
     struct MapPosition pos;
+    struct FpCast cs;
+    struct FpWall w[2];
 
     if (!sFp.smoothReady)
         SmoothInit();
     GetPlayerPosition(&pos);
     if (pos.x != sFp.winX || pos.y != sFp.winY)
         SmoothResetWindow(pos.x, pos.y);
+    cs.camX = camX;
+    cs.camY = camY;
+    cs.dirX = dirX;
+    cs.dirY = dirY;
+    cs.planeX = planeX;
+    cs.planeY = planeY;
 
     for (c = 0; c < FP_SMOOTH_COLS; c++)
     {
-        s32 camx = (((c * FP_SMOOTH_COLW + FP_SMOOTH_COLW / 2 - 120) * 546) >> 8);
-        s32 rayX = dirX + (planeX * camx >> 8), rayY = dirY + (planeY * camx >> 8);
-        s32 mapX = camX >> 8, mapY = camY >> 8;
-        s32 aX = rayX < 0 ? -rayX : rayX, aY = rayY < 0 ? -rayY : rayY;
-        s32 deltaX = aX ? M->recipRay[aX > 511 ? 511 : aX] : 0x3FFFFFFF;
-        s32 deltaY = aY ? M->recipRay[aY > 511 ? 511 : aY] : 0x3FFFFFFF;
-        s32 stepX = rayX < 0 ? -1 : 1, stepY = rayY < 0 ? -1 : 1;
-        s32 sideX = rayX < 0 ? (fracX * deltaX) >> 8 : ((256 - fracX) * deltaX) >> 8;
-        s32 sideY = rayY < 0 ? (fracY * deltaY) >> 8 : ((256 - fracY) * deltaY) >> 8;
-        s32 side = 0, i, perp = 0;
-        u32 k;
-        bool32 hit = FALSE;
-        u16 zFar = 0xFFFF, zScen = 0xFFFF;
-        s32 ys = FP_HORIZON, ye = FP_HORIZON;
+        s32 px2 = c * 8 + 4 - 240;      // column centre in half pixels from the screen centre
+        s32 n = 1, j, ys, ye;
 
-        for (i = 0; i < 9; i++)
+        CastCol(&cs, px2, FP_SMOOTH_ROWH, &w[0]);
+        if (w[0].hit && w[0].zFar >= FP_NEAR_LO && w[0].zFar < FP_NEAR_HI && !gFpNearOff)
         {
-            if (sideX < sideY)
-            {
-                sideX += deltaX;
-                mapX += stepX;
-                side = 0;
-            }
-            else
-            {
-                sideY += deltaY;
-                mapY += stepY;
-                side = 1;
-            }
-            k = CellKind(sFp.winX, sFp.winY, mapX, mapY);
-            if (k == 2)
-            {
-                hit = TRUE;
-                break;
-            }
-            if (k == 3)
-            {
-                s32 zNow = side == 0 ? sideX - deltaX : sideY - deltaY;
+            // near wall: two 2 px columns (rays through the pixel centres at 1 and 3 px), 1-row blocks
+            struct FpWall cw = w[0];
 
-                if (zNow >= FP_SCENERY_WALL)
-                {
-                    hit = TRUE;   // far scenery is a cheap wall block (the billboards would cost too much, and the trees are small there)
-                    break;
-                }
-                if (zScen == 0xFFFF)
-                    zScen = zNow + FP_SCENERY_DEPTH;
-            }
+            SubCol(&cs, px2 - 2, 2, &cw, &w[0]);
+            SubCol(&cs, px2 + 2, 2, &cw, &w[1]);
+            n = 2;
         }
-        if (hit)
+        if (n == 1)
         {
-            const struct FpFace *face = GetFace(mapX, mapY);
-            s32 u, tx, ytopQ8, ybotQ8, step, p0, lvl;
-
-            perp = side == 0 ? sideX - deltaX : sideY - deltaY;
-            if (perp < 40)
-                perp = 40;
-            if (side == 0)
+            ys = ye = FP_HORIZON;
+            if (w[0].hit && w[0].y1 > w[0].y0)
             {
-                tx = ((camY + (perp * rayY >> 8)) & 255) >> 4;
-                if (rayX < 0)
-                    tx = 15 - tx;
-            }
-            else
-            {
-                tx = ((camX + (perp * rayX >> 8)) & 255) >> 4;
-                if (rayY > 0)
-                    tx = 15 - tx;
-            }
-            u = M->recipPerp[perp > 2559 ? 2559 : perp] << 2;     // pixels per cell, Q8
-            ybotQ8 = FP_HORIZON * 256 + u / 2;
-            ytopQ8 = FP_HORIZON * 256 - u * (2 * face->h - 1) / 2;
-            step = (perp * 10486) >> 8;                           // texels per pixel, Q16 (2^28 / u)
-            {
-                s32 y0 = ytopQ8 < 0 ? 0 : ytopQ8 >> 8;
+                s32 cnt = (w[0].y1 - w[0].y0 + FP_SMOOTH_ROWH - 1) / FP_SMOOTH_ROWH;
 
-                y0 &= ~(FP_SMOOTH_ROWH - 1);
-                p0 = (s32)(((s64)((y0 * 256 + 128 * FP_SMOOTH_ROWH) - ytopQ8) * step) >> 8);
-                if (p0 < 0)
-                    p0 = 0;
+                ys = w[0].y0;
+                ye = ys + cnt * FP_SMOOTH_ROWH;
             }
-            lvl = FogLevel(perp) + (side ? 4 : 0);
-            zFar = perp;
-            {
-                s32 y0 = ytopQ8 >> 8, y1 = ybotQ8 >> 8;
-
-                if (y0 < 0)
-                    y0 = 0;
-                y0 &= ~(FP_SMOOTH_ROWH - 1);
-                if (y1 > FP_ROWS)
-                    y1 = FP_ROWS;
-                if (y1 > y0)
-                {
-                    s32 cnt = (y1 - y0 + FP_SMOOTH_ROWH - 1) / FP_SMOOTH_ROWH;
-
-                    WallStrip(vram + y0 * 240 + c * FP_SMOOTH_COLW, cnt, face, tx, p0, step, M->lut[lvl], lvl);
-                    ys = y0;
-                    ye = y0 + cnt * FP_SMOOTH_ROWH;
-                }
-            }
+            SkyStrip(vram + c * FP_SMOOTH_COLW, ys >> 1, M->skyPan + ((((sFp.angleQ4 >> 4) + ((c * 1213 >> 10) - 35)) & (FP_SKY_W - 1)) * (FP_SKY_R / 4)), M->skyTab);
+            if (ye > ys)
+                WallStrip(vram + ys * 240 + c * FP_SMOOTH_COLW, (ye - ys) / FP_SMOOTH_ROWH, w[0].face, w[0].tx, w[0].p0, w[0].step, M->lut[w[0].lvl], w[0].lvl, TRUE);
+            M->colYe[c] = ye >> 1;
+            M->cols[c * 2].z = M->cols[c * 2 + 1].z = w[0].zFar;
+            M->cols[c * 2].zs = M->cols[c * 2 + 1].zs = w[0].zScen;
         }
-        SkyStrip(vram + c * FP_SMOOTH_COLW, ys >> 1, M->skyPan + ((((sFp.angleQ4 >> 4) + ((c * 1213 >> 10) - 35)) & (FP_SKY_W - 1)) * (FP_SKY_R / 4)), M->skyTab);
-        M->colYe[c] = ye >> 1;
-        for (i = 0; i < FP_SMOOTH_COLW / 2; i++)
+        else
         {
-            M->cols[c * (FP_SMOOTH_COLW / 2) + i].z = zFar;
-            M->cols[c * (FP_SMOOTH_COLW / 2) + i].zs = zScen;
+            // common sky bottom (the lower of the two wall tops, even) and common floor start (the lower of the two bottoms, rounded up to even)
+            s32 y0m = 0, y1m = 0;
+
+            for (j = 0; j < 2; j++)
+            {
+                s32 t0 = w[j].hit ? w[j].y0 : FP_HORIZON, t1 = w[j].hit ? w[j].y1 : FP_HORIZON;
+
+                if (t0 > y0m)
+                    y0m = t0;
+                if (t1 > y1m)
+                    y1m = t1;
+            }
+            ys = (y0m + 1) & ~1;
+            ye = (y1m + 1) & ~1;
+            SkyStrip(vram + c * FP_SMOOTH_COLW, ys >> 1, M->skyPan + ((((sFp.angleQ4 >> 4) + ((c * 1213 >> 10) - 35)) & (FP_SKY_W - 1)) * (FP_SKY_R / 4)), M->skyTab);
+            for (j = 0; j < 2; j++)
+            {
+                if (w[j].hit)
+                {
+                    s32 y0 = w[j].y0;   // drawn over the sky strip (which reaches down to the lower of the two tops)
+
+                    if (ye > y0)
+                        WallStrip(vram + y0 * 240 + c * FP_SMOOTH_COLW + j * 2, (ye - y0) / 2, w[j].face, w[j].tx, w[j].p0, w[j].step, M->lut[w[j].lvl], w[j].lvl, FALSE);
+                }
+                M->cols[c * 2 + j].z = w[j].zFar;
+                M->cols[c * 2 + j].zs = w[j].zScen;
+            }
+            M->colYe[c] = ye >> 1;
         }
     }
     FloorRows(vram, camX, camY, dirX, dirY, planeX, planeY);
@@ -2559,7 +2684,7 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
     if (sFp.smooth)
     {
         SmoothCamera();
-        if (sFp.dirty || sFp.camX != sFp.lastCamX || sFp.camY != sFp.lastCamY || sFp.angleQ4 != sFp.lastAngle || SmoothObjectSignature() != sFp.lastSig)
+        if (sFp.dirty || gFpNearOff == 2 || sFp.camX != sFp.lastCamX || sFp.camY != sFp.lastCamY || sFp.angleQ4 != sFp.lastAngle || SmoothObjectSignature() != sFp.lastSig)
             RenderBackPage(FALSE);
         return FALSE;
     }

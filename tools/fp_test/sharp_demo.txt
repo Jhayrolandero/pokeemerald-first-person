@@ -1,0 +1,19 @@
+# walk up to the houses and look along the facades; NEAROFF 1 = old coarse walls, 0 = near-field 2 px columns (side by side mp4). PREFIX/NEAROFF replaced by sed
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+poke16 gFpNearOff NEAROFF
+run 60
+capture PREFIX 2
+run 10
+hold UP 70
+hold LEFT 14
+hold UP 40
+hold RIGHT 28
+hold UP 40
+hold LEFT 14
+hold UP+R 40
+hold UP+LEFT 30
+release
+run 20

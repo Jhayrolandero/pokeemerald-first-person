@@ -29,6 +29,10 @@ Beyond about 3 cells they fall back to the old wall blocks (cheap, and the trees
 dense treeline costs about 5 to 8 fps (30 -> 22-25), see `tools/fp_test/scenery_perf.txt`. Free movement speed is scaled by frames per tick when a
 redraw takes more than 2 frames, so slow scenes do not slow walking down.
 
+Walls whose distance is between FP_NEAR_LO and FP_NEAR_HI (about 1.6 to 2 cells, where a texel is 3 to 4 px wide) are drawn as two 2 px columns
+instead of one 4 px column (shared depth, only the texture column differs), so facade detail such as window bars and signs stays sharp. Walls closer than that have
+texels wider than the block already; farther walls stay cheap 4 px columns.
+
 ## How it works
 
 Code: `src/first_person.c`, `include/first_person.h`, hooks in `src/overworld.c`, `src/field_control_avatar.c`, `src/malloc.c`.

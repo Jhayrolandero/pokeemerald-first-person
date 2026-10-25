@@ -51,3 +51,7 @@ Scenery billboards (branch fp-free): trees and fences as transparent standing bi
   scenery_shots.txt  before/after shots (PREFIX replaced by sed): fp_scenery_before_a..d.png, fp_scenery_after_a..d.png (Littleroot east treeline)
   scenery_perf.txt   fps with the treeline in view (standing / walking up to it / turning / strafing); scenery_demo.txt -> fp_scenery_demo.mp4
   fp_scenery_fence_testmap*.png: fences, shot on a TEMPORARY edit of data/layouts/LittlerootTown/map.bin (reverted; no solid fence is near the start)
+Sharper walls (branch fp-free): mid/near-field walls cast as two 2 px columns (FP_NEAR_LO..FP_NEAR_HI in first_person.c).
+  perf.sh            fps summary of free_perf.txt + scenery_perf.txt (one line per probe)
+  sharp_shots.txt    same-spot before/after shots (fp_sharp_before_*/after_*): harness `poke16 gFpNearOff 2/1/0` turns the near-field columns off/on
+  sharp_demo.txt     side-by-side mp4 fp_sharp_demo.mp4 (left: off, right: on)

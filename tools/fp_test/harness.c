@@ -384,6 +384,10 @@ int main(int argc, char **argv) {
                   while (core->frameCounter(core) == fc0 && core->frameCycles(core) < target) core->step(core);
                   if (core->frameCounter(core) != fc0) { /* frame boundary: continue */ } }
             }
+        } else if (!strcmp(cmd, "poke16")) {
+            // poke16 SYMBOL VALUE: write a 16-bit value to a (non-static or syms.txt) symbol
+            char sym[128]; unsigned val; sscanf(line, "%*s %127s %u", sym, &val);
+            core->busWrite16(core, symbolAddr(sym), (uint16_t)val);
         } else if (!strcmp(cmd, "peek8")) {
             unsigned addr;
             sscanf(line, "%*s %x", &addr);
