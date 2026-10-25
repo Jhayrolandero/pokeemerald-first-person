@@ -870,9 +870,15 @@ static bool32 StandardAnimLayout(const struct ObjectEvent *oe, const struct Obje
         || info->anims == GetObjectEventGraphicsInfo(OBJ_EVENT_GFX_MAY_NORMAL)->anims;
 }
 
-// test hook (tools/fp_test): the last 8 billboards drawn: graphicsId, facing, sprite animNum, chosen animNum, image, hflip, z, u
+// test hook (tools/fp_test/regress_billboard.sh): the last 8 billboards drawn: graphicsId, facing, sprite animNum, chosen animNum, image, hflip, z, u.
+// Set FP_TEST_HOOKS to 0 to drop it (260 B of EWRAM) in a release build; the billboard regression then cannot run.
+#ifndef FP_TEST_HOOKS
+#define FP_TEST_HOOKS 1
+#endif
+#if FP_TEST_HOOKS
 EWRAM_DATA u32 gFpBillLog[64] = {0};
 EWRAM_DATA u32 gFpBillLogN = 0;
+#endif
 static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
 {
     const struct ObjectEvent *oe;
@@ -928,7 +934,9 @@ static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
         {
             imageValue = cmd->frame.imageValue;
             hflip = cmd->frame.hFlip;
+#if FP_TEST_HOOKS
             { u32 *d = &gFpBillLog[(gFpBillLogN++ & 7) * 8]; d[0] = oe->graphicsId; d[1] = oe->facingDirection; d[2] = spr->animNum; d[3] = animNum; d[4] = imageValue; d[5] = hflip; d[6] = b->z; d[7] = (u16)b->u; }
+#endif
         }
         else
         {

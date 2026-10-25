@@ -61,3 +61,13 @@ Code: `src/first_person.c`, `include/first_person.h`, hooks in `src/overworld.c`
 ## Test harness
 
 `tools/fp_test/` has a headless libmgba harness (requires `brew install mgba`) and screenshots. See `tools/fp_test/README.md`.
+
+## Handoff notes (for the next developer or agent)
+
+- Branch history: `first-person` (stepping view) -> `fp-smooth` (gliding camera) -> `fp-free` (free movement, floor, sky, scenery, fog). `fp-free` is the latest.
+- Modes (Select cycles): free, smooth, stepping. L turns the view on, Start turns it off. Flags: `OW_FIRST_PERSON`, `OW_FIRST_PERSON_SMOOTH`, `OW_FIRST_PERSON_FREE`.
+- Budgets (emulator numbers only; never verified on real hardware): walking about 25 fps, IWRAM nearly full (the stack overflows past about 29,900 B of IWRAM use, so keep new code/data in ROM or EWRAM), 255 shared Mode 4 palette colours, heap about 60 KB while active.
+- Savestates and `tools/fp_test/syms.txt` are tied to the exact build: run `tools/fp_test/rebuild.sh` after every rebuild.
+- Regression suite: `tools/fp_test/regress_*.sh` (seven scripts; the follower-after-battle one is timing-sensitive, rerun once before calling it a failure).
+- Test hooks: `gFpBillLog` (guarded by `FP_TEST_HOOKS`), `gFpNearOff`, `gFpPolishOff` (redraw the previous look for identical-pose before/after shots).
+- Known gaps: NPC contact shadows and feet alignment not done; bike/surf/rock smash in free mode not reviewed; scenery billboards only for the General tileset; text started by scripts is shown in the normal view after a reload.
