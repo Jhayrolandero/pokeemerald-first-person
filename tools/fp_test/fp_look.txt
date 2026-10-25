@@ -1,0 +1,28 @@
+# open-field looks: turn the view in Littleroot (left = turn) and shoot each heading, then Route 101
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+hold RIGHT 25
+release
+run 30
+shot fp_look_0_east.ppm
+hold RIGHT 25
+release
+run 30
+shot fp_look_1_south.ppm
+hold RIGHT 25
+release
+run 30
+shot fp_look_2_west.ppm
+load route101.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+shot fp_look_3_route101.ppm
+hold UP 40
+release
+run 30
+shot fp_look_4_route101_walk.ppm

@@ -1,0 +1,18 @@
+# before/after shots for the look improvements: PREFIX is replaced by sed (fp_step0_before / fp_step1_floor / fp_step2_sky)
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+hold RIGHT 22
+release
+run 30
+shot PREFIX_a.ppm
+hold RIGHT 10
+release
+run 30
+shot PREFIX_b.ppm
+hold UP 25
+release
+run 30
+shot PREFIX_c.ppm

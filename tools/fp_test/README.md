@@ -42,3 +42,8 @@ Free movement test (OW_FIRST_PERSON_FREE, branch fp-free): Up/Down walk along th
   NOTE: the older test scripts (move_test, interact_test, npc_test, ...) press L to turn the view on and expect the stepping renderer; with the
   free default they need `press SELECT` twice (or build with OW_FIRST_PERSON_FREE / OW_FIRST_PERSON_SMOOTH FALSE). The fuzz/regress_* scripts work in any mode.
   make_follower_state.txt now leaves the view with START (L is strafe in free mode).
+Look improvements (branch fp-free): textured floor + generated sky in the smooth/free renderer.
+  rebuild.sh        build + regenerate syms.txt + all savestates in order
+  fp_steps.txt      before/after shots (PREFIX replaced by sed): fp_step0_before_*, fp_step1_floor_*, fp_step2_sky_* ; fp_look.txt open-field looks
+  fp_look_demo.mp4  walking demo (free_demo.txt captured with the textured floor and sky)
+  NOTE: gFpStats scanlines are now measured with hardware timer 3 (the old VCOUNT/vblankCounter clock was off by up to +-228 lines per render).

@@ -1,0 +1,5 @@
+PERF walk_forward: 60 frames, 28 page flips (28.0 fps), 29 renders, avg 304 scanlines
+PERF turning_in_place: 30 frames, 15 page flips (30.0 fps), 15 renders, avg 304 scanlines
+PERF diagonal_forward_strafe: 60 frames, 30 page flips (30.0 fps), 29 renders, avg 313 scanlines
+PERF curve_walk_turn: 60 frames, 29 page flips (29.0 fps), 28 renders, avg 337 scanlines
+PERF run: 40 frames, 19 page flips (28.5 fps), 20 renders, avg 309 scanlines

@@ -69,13 +69,19 @@
 #define FP_EYE          128           // eye height, Q8 cells
 #define FP_MAX_Z        (6 * 256)
 #define FP_STEP         64
-#define FP_TEX_N        40
+#define FP_TEX_N        56
+#define FP_SMOOTH_COLS_MAX 60
+#define FP_SKY_W        256           // sky panorama columns per full turn
+#define FP_FLOOR_MID    56            // floor row pairs from here: 4x4 blocks (z < ~1.5 cells)
+#define FP_FLOOR_NEAR   64            // floor row pairs from here: 8x4 blocks again (a texel is wider than 6 px)
+#define FP_SKY_R        40            // sky rows (2 px each) above the horizon
 #define FP_LEVELS       8             // 4 fog levels x {front, side}
 #define FP_PAGE_SIZE    0xA000
 #define FP_DECOMP_HEADROOM 14000   // the tANS decoder allocates ~11 KB of scratch on top
 #define FP_DECOMP_SLACK 128        // the smol decoder can write a little past the nominal output size
 #define FP_TRAIL_MAX    4
 #define FP_BILL_NEAR    320            // billboards closer than this (Q8 cells) are drawn at this distance
+#define FP_FWIN         21            // floor texture cache window (+-10 cells)
 #define FP_WIN          17            // cached cell window around the player (+-8)
 #define FP_IWRAM        ARM_FUNC __attribute__((section(".iwram.code"))) __attribute__((noinline))
 
@@ -101,6 +107,7 @@ struct FpMem
     u16 texId[FP_TEX_N];
     u8 texPin[FP_TEX_N];
     u8 texNext;
+    u8 texIdx[1024];                  // metatile id -> slot + 1 in tex[] (validated against texId)
     u8 numSlots;
     u8 slotQ[4096];
     u8 lut[FP_LEVELS][512];
@@ -108,12 +115,19 @@ struct FpMem
     u16 srcPal[512];                  // BG (0-255) and OBJ (256-511) palette snapshot
     u8 haze[3], skyTop[3];
     u8 hazeSlot, skySlot[FP_HORIZON];
-    u8 solid[FP_WIN * FP_WIN];        // per-redraw cache: 0 unknown, 1 empty, 2 solid
-    const u8 *cellTex[FP_WIN * FP_WIN];
+    u8 solid[1024];                   // cell cache indexed by (y & 31, x & 31): 0 unknown, 1 empty, 2 solid
+    const u8 *cellTex[1024];          // floor texture per cell; the smooth renderer indexes it by (y & 31, x & 31) and slides it with the window
     struct FpCol cols[FP_COLS];
     struct FpFace faces[FP_WIN * FP_WIN];
-    u16 ceilHW[FP_HORIZON], floorHW[FP_ROWS - FP_HORIZON];   // smooth renderer: per-row colour (2 px)
-    u16 floorBase;
+    // smooth renderer
+    u8 skyTab[FP_SKY_R / 2][6];           // per 2 px sky row: palette slot of {sky, cloud edge, cloud core, far ridge, near trees}
+    u8 skyPan[FP_SKY_W * (FP_SKY_R / 4)];   // sky panorama, one nibble per (column, 4 px row), generated in code
+    u8 skyBuilt;
+    u16 recipPerp[2560];              // (6553600 / perp) >> 2: wall height in px per cell (Q8), no per-column division
+    u16 recipRay[512];                // 65536 / |ray component| (Q8), capped at 65535
+    u8 colYe[FP_SMOOTH_COLS_MAX];            // per smooth column: first row pair below the wall (floor starts here)
+    u8 floorLvl[FP_ROWS / 2 - FP_SKY_R];    // fog level per floor row pair (4 = haze)
+    u16 floorZ[FP_ROWS / 2 - FP_SKY_R];     // floor row depth, Q8 cells
     u32 tiles[];                      // decompressed primary + secondary tileset tiles (size depends on the map)
 };
 
@@ -275,14 +289,12 @@ static const u8 *GetTex(u32 id, bool32 pin)
 {
     u32 i, n;
 
-    for (i = 0; i < FP_TEX_N; i++)
+    i = M->texIdx[id & 1023];
+    if (i && M->texId[i - 1] == id + 1)
     {
-        if (M->texId[i] == id + 1)
-        {
-            if (pin)
-                M->texPin[i] = 1;
-            return M->tex[i];
-        }
+        if (pin)
+            M->texPin[i - 1] = 1;
+        return M->tex[i - 1];
     }
     // replace round-robin, skipping pinned wall textures
     for (n = 0; n < FP_TEX_N; n++)
@@ -292,7 +304,14 @@ static const u8 *GetTex(u32 id, bool32 pin)
         if (!M->texPin[i])
             break;
     }
+    if (M->texId[i])
+    {
+        for (n = 0; n < 1024; n++)
+            if (M->cellTex[n] == M->tex[i])
+                M->cellTex[n] = NULL;   // a cached floor pointer would show the new metatile
+    }
     M->texId[i] = id + 1;
+    M->texIdx[id & 1023] = i + 1;
     M->texPin[i] = pin;
     ComposeMetatile(id, M->tex[i]);
     return M->tex[i];
@@ -318,7 +337,7 @@ static bool32 SolidAt(s32 px, s32 py, s32 cx, s32 cy)
 
     if (dx < 0 || dy < 0 || dx >= FP_WIN || dy >= FP_WIN)
         return CellSolid(cx, cy);
-    e = &M->solid[dy * FP_WIN + dx];
+    e = &M->solid[((cy & 31) << 5) | (cx & 31)];
     if (!*e)
         *e = CellSolid(cx, cy) ? 2 : 1;
     return *e == 2;
@@ -418,7 +437,7 @@ static const u8 *FloorTex(s32 cx, s32 cy)
     return GetTex(MapGridGetMetatileIdAt(cx, cy), FALSE);
 }
 
-FP_IWRAM static void RenderRows(u8 *vram, s32 px, s32 py, s32 fx, s32 fy, s32 rx, s32 ry)
+static void RenderRows(u8 *vram, s32 px, s32 py, s32 fx, s32 fy, s32 rx, s32 ry)
 {
     struct FpMem *m = M;
     s32 c, y;
@@ -481,19 +500,19 @@ FP_IWRAM static void RenderRows(u8 *vram, s32 px, s32 py, s32 fx, s32 fy, s32 rx
             }
             else
             {
-                s32 dx = (wx >> 8) + 8, dy = (wy >> 8) + 8;
+                s32 dx = (wx >> 8) + 10, dy = (wy >> 8) + 10;
                 const u8 *t;
                 u32 pix, ls;
 
-                if ((u32)dx >= FP_WIN || (u32)dy >= FP_WIN)
+                if ((u32)dx >= FP_FWIN || (u32)dy >= FP_FWIN)
                 {
-                    t = FloorTex(px + dx - 8, py + dy - 8);
+                    t = FloorTex(px + dx - 10, py + dy - 10);
                 }
                 else
                 {
-                    t = m->cellTex[dy * FP_WIN + dx];
+                    t = m->cellTex[dy * FP_FWIN + dx];
                     if (!t)
-                        t = m->cellTex[dy * FP_WIN + dx] = FloorTex(px + dx - 8, py + dy - 8);
+                        t = m->cellTex[dy * FP_FWIN + dx] = FloorTex(px + dx - 10, py + dy - 10);
                 }
                 pix = t[(((wy & 255) >> 4) << 4) | ((wx & 255) >> 4)];
                 ls = m->lut[floorLvl][pix];
@@ -1066,67 +1085,149 @@ static const struct FpFace *GetFace(s32 cx, s32 cy)
     return f;
 }
 
-static u16 AverageFloorColor(s32 tx, s32 ty)
+// ---- sky: gradient + clouds + distant ridges, generated in code into a wrapping panorama (one nibble per 4 px x 2 px block)
+
+static u32 SkyHash(u32 x)
 {
-    const u8 *t = GetTex(MapGridGetMetatileIdAt(tx, ty), FALSE);
-    u32 i, n = 0, r = 0, g = 0, b = 0;
-
-    for (i = 0; i < 256; i += 3)
-    {
-        u16 c;
-
-        if (!t[i])
-            continue;
-        c = M->srcPal[t[i]];
-        r += c & 31;
-        g += (c >> 5) & 31;
-        b += (c >> 10) & 31;
-        n++;
-    }
-    if (!n)
-        return 0x2A52;
-    return (r / n) | ((g / n) << 5) | ((b / n) << 10);
+    x ^= x >> 15;
+    x *= 0x2C1B3C6D;
+    x ^= x >> 12;
+    x *= 0x297A2D39;
+    x ^= x >> 15;
+    return x;
 }
 
-// ceiling / floor colours per row (fog bands)
+// value noise, 0..255; x wraps every gw cells of width cw
+static s32 SkyNoise(s32 x, s32 y, s32 cw, s32 ch, s32 gw, u32 seed)
+{
+    s32 ix = x / cw, iy = y / ch, fx = (x % cw) * 256 / cw, fy = (y % ch) * 256 / ch;
+    s32 ix1 = (ix + 1) % gw;
+    s32 v00 = SkyHash(ix * 7919 + iy * 104729 + seed) & 255, v10 = SkyHash(ix1 * 7919 + iy * 104729 + seed) & 255;
+    s32 v01 = SkyHash(ix * 7919 + (iy + 1) * 104729 + seed) & 255, v11 = SkyHash(ix1 * 7919 + (iy + 1) * 104729 + seed) & 255;
+    s32 a, b;
+
+    fx = (fx * fx * (768 - 2 * fx)) >> 16;
+    fy = (fy * fy * (768 - 2 * fy)) >> 16;
+    a = v00 + (((v10 - v00) * fx) >> 8);
+    b = v01 + (((v11 - v01) * fx) >> 8);
+    return a + (((b - a) * fy) >> 8);
+}
+
+static void SkyBuildPanorama(void)
+{
+    s32 x, r;
+
+    for (x = 0; x < FP_SKY_W; x++)
+    {
+        s32 hf = 2 + ((3 * SinB(x * 2) + 2 * SinB(x * 5 + 60) + SinB(x * 11 + 13)) >> 9);
+        s32 hn = 1 + ((SinB(x * 7) + SinB(x * 19 + 5)) >> 9) + (SkyHash(x + 77) & 1);
+
+        if (hf < 1)
+            hf = 1;
+        if (hn < 1)
+            hn = 1;
+        for (r = 0; r < FP_SKY_R / 2; r++)
+        {
+            s32 d = (SkyNoise(x, r, 32, 7, 8, 11) * 5 + SkyNoise(x, r, 16, 4, 16, 523) * 3) >> 3;
+            u32 v = 0;
+
+            if (r > 13)
+                d -= (r - 13) * 24;
+            if (r < 2)
+                d -= (2 - r) * 40;
+            if (d > 150)
+                v = 2;
+            else if (d > 122)
+                v = 1;
+            if (r >= FP_SKY_R / 2 - hf)
+                v = 3;
+            if (r >= FP_SKY_R / 2 - hn)
+                v = 4;
+            if (r & 1)
+                M->skyPan[x * (FP_SKY_R / 4) + (r >> 1)] |= v << 4;
+            else
+                M->skyPan[x * (FP_SKY_R / 4) + (r >> 1)] = v;
+        }
+    }
+}
+
+static u32 Mix3(const u8 *a, const u8 *b, u32 t)
+{
+    u32 r = (a[0] * (256 - t) + b[0] * t) >> 8, g = (a[1] * (256 - t) + b[1] * t) >> 8, bl = (a[2] * (256 - t) + b[2] * t) >> 8;
+
+    return GetSlot(r | (g << 5) | (bl << 10));
+}
+
+// sky colour table per row, floor row depths and fog levels
 static void SmoothBuildRows(void)
 {
-    s32 y;
-    u32 fr = M->floorBase & 31, fg = (M->floorBase >> 5) & 31, fb = (M->floorBase >> 10) & 31;
+    s32 r;
+    u8 white[3], far[3], near[3];
 
-    for (y = 0; y < FP_HORIZON; y++)
+    for (r = 0; r < 3; r++)
     {
-        s32 t = (y / 10) * 32 + 16;
-        u32 r = (M->skyTop[0] * (256 - t) + M->haze[0] * t) >> 8;
-        u32 g = (M->skyTop[1] * (256 - t) + M->haze[1] * t) >> 8;
-        u32 b = (M->skyTop[2] * (256 - t) + M->haze[2] * t) >> 8;
-        u32 s = GetSlot(r | (g << 5) | (b << 10));
+        u32 w = M->haze[r] * 5 / 4 + 2;
 
-        M->ceilHW[y] = s | (s << 8);
+        white[r] = w > 31 ? 31 : w;
     }
-    for (y = FP_HORIZON; y < FP_ROWS; y++)
+    far[0] = M->haze[0] * 165 >> 8;  far[1] = M->haze[1] * 185 >> 8;  far[2] = M->haze[2] * 175 >> 8;
+    near[0] = M->haze[0] * 100 >> 8; near[1] = M->haze[1] * 125 >> 8; near[2] = M->haze[2] * 105 >> 8;
+    M->hazeSlot = GetSlot(M->haze[0] | (M->haze[1] << 5) | (M->haze[2] << 10));
+    if (!M->skyBuilt)
     {
-        s32 band = (y - FP_HORIZON) / 6, yc = FP_HORIZON + band * 6 + 3;
-        s32 fz = 25600 / (2 * (yc - FP_HORIZON) + 1);
-        u32 f = fz > FP_MAX_Z ? 230 : fz * 230 / FP_MAX_Z;
-        u32 r = (fr * (256 - f) + M->haze[0] * f) >> 8;
-        u32 g = (fg * (256 - f) + M->haze[1] * f) >> 8;
-        u32 b = (fb * (256 - f) + M->haze[2] * f) >> 8;
-        u32 s = GetSlot(r | (g << 5) | (b << 10));
+        SkyBuildPanorama();
+        M->skyBuilt = TRUE;
+    }
+    for (r = 0; r < FP_SKY_R / 2; r++)
+    {
+        u8 base[3];
+        u32 t = 16 + r * 12, i;
 
-        M->floorHW[y - FP_HORIZON] = s | (s << 8);
+        for (i = 0; i < 3; i++)
+            base[i] = (M->skyTop[i] * (256 - t) + M->haze[i] * t) >> 8;
+        M->skyTab[r][0] = Mix3(base, base, 0);
+        M->skyTab[r][1] = Mix3(base, white, 90);
+        M->skyTab[r][2] = Mix3(base, white, 180);
+        M->skyTab[r][3] = Mix3(far, far, 0);
+        M->skyTab[r][4] = Mix3(near, near, 0);
+    }
+    for (r = 0; r < FP_ROWS / 2 - FP_SKY_R; r++)
+    {
+        s32 z = 12800 / (2 * (FP_SKY_R + r) - 79);
+
+        M->floorZ[r] = z > 65535 ? 65535 : z;
+        M->floorLvl[r] = z > FP_MAX_Z ? 4 : FogLevel(z);
     }
 }
 
+// Slide the cell caches (solid / floor texture, indexed mod 32) with the window: only the cells that entered the +-10 window are cleared.
 static void SmoothResetWindow(s32 tx, s32 ty)
 {
-    memset(M->solid, 0, sizeof(M->solid));
+    s32 ox = sFp.winX, oy = sFp.winY, x, y;
+
     memset(M->faces, 0, sizeof(M->faces));
     memset(M->texPin, 0, sizeof(M->texPin));
+    if (ox < tx - 2 || ox > tx + 2 || oy < ty - 2 || oy > ty + 2)
+    {
+        memset(M->solid, 0, sizeof(M->solid));
+        memset(M->cellTex, 0, sizeof(M->cellTex));
+    }
+    else
+    {
+        for (x = tx - 10; x <= tx + 10; x++)
+        {
+            for (y = ty - 10; y <= ty + 10; y++)
+            {
+                if (x < ox - 10 || x > ox + 10 || y < oy - 10 || y > oy + 10)
+                {
+                    M->solid[((y & 31) << 5) | (x & 31)] = 0;
+                    M->cellTex[((y & 31) << 5) | (x & 31)] = NULL;
+                }
+            }
+        }
+    }
     sFp.winX = tx;
     sFp.winY = ty;
-    M->floorBase = AverageFloorColor(tx, ty);
-    SmoothBuildRows();
 }
 
 static void SmoothInit(void)
@@ -1152,24 +1253,132 @@ static void SmoothInit(void)
             sFp.restY[i] = spr->y + spr->y2 - oe->currentCoords.y * 16;
         }
     }
+    memset(M->solid, 0, sizeof(M->solid));
+    memset(M->cellTex, 0, sizeof(M->cellTex));
+    SmoothBuildRows();
+    if (!M->recipPerp[40])
+    {
+        for (i = 1; i < 2560; i++)
+            M->recipPerp[i] = (6553600 / (i < 40 ? 40 : i)) >> 2;
+        for (i = 1; i < 512; i++)
+            M->recipRay[i] = 65536 / i > 65535 ? 65535 : 65536 / i;
+    }
     sFp.winX = -1000;
     sFp.smoothReady = TRUE;
 }
 
-// Background: ceiling / floor rows are identical across the screen, so they are filled row-run by row-run (BIOS fill, ~25 calls)
-static void FillBackground(u8 *vram)
+// Sky strip: `count` rows of 2 px (drawn as 4 px blocks, a last odd row as 2 px) of one 4 px column from the panorama column `pan`
+static void SkyStrip(u8 *dst, s32 count, const u8 *pan, const u8 (*tab)[6])
 {
-    s32 y = 0;
+    s32 r;
 
-    while (y < FP_ROWS)
+    for (r = 0; r < (count >> 1); r++)
     {
-        u16 v = y < FP_HORIZON ? M->ceilHW[y] : M->floorHW[y - FP_HORIZON];
-        s32 n = 1;
+        u32 slot = tab[r][(pan[r >> 1] >> ((r & 1) << 2)) & 15] * 0x01010101;
 
-        while (y + n < FP_ROWS && (y + n < FP_HORIZON ? M->ceilHW[y + n] : M->floorHW[y + n - FP_HORIZON]) == v && y + n != FP_HORIZON)
-            n++;
-        CpuFastFill(v | (v << 16), vram + y * 240, n * 240);
-        y += n;
+        *(u32 *)dst = slot;
+        *(u32 *)(dst + 240) = slot;
+        *(u32 *)(dst + 480) = slot;
+        *(u32 *)(dst + 720) = slot;
+        dst += 960;
+    }
+    if (count & 1)
+    {
+        u32 slot = tab[r][(pan[r >> 1] >> ((r & 1) << 2)) & 15] * 0x01010101;
+
+        *(u32 *)dst = slot;
+        *(u32 *)(dst + 240) = slot;
+    }
+}
+
+static const u8 *FloorCell(s32 cx, s32 cy)
+{
+    s32 dx = cx - sFp.winX + 10, dy = cy - sFp.winY + 10;
+    const u8 *t;
+
+    if ((u32)dx >= FP_FWIN || (u32)dy >= FP_FWIN)
+        return FloorTex(cx, cy);
+    t = M->cellTex[((cy & 31) << 5) | (cx & 31)];
+    if (!t)
+        t = M->cellTex[((cy & 31) << 5) | (cx & 31)] = FloorTex(cx, cy);
+    return t;
+}
+
+// Floor: perspective floor casting over the lower half below each column's wall (colYe), textured with the metatile under each block.
+// Rows are cast row by row so the world position only needs adding per block (Q16 cells). Block size follows the texel size on screen:
+// 8x2 haze rows, then 8x4 (far), 4x4 (middle) and 8x4 (nearest rows, where a texel is wider than 6 px). Hot loop in IWRAM; the metatile
+// is only looked up again when the position enters another cell.
+FP_IWRAM static void FloorRows(u8 *vram, s32 camX, s32 camY, s32 dirX, s32 dirY, s32 planeX, s32 planeY)
+{
+    const u8 *lut = &M->lut[0][0];
+    const u8 *ye = M->colYe;
+    s32 k, nk;
+
+    for (k = 0; k < FP_ROWS / 2 - FP_SKY_R; k += nk)
+    {
+        s32 r = FP_SKY_R + k, c;
+        u32 *dst = (u32 *)(vram + r * 480);
+        u32 lvl = M->floorLvl[k];
+
+        if (lvl == 4)
+        {
+            u32 slot = M->hazeSlot * 0x01010101;
+
+            nk = 1;
+            for (c = 0; c < FP_SMOOTH_COLS; c++)
+                if (r >= ye[c])
+                    dst[c] = dst[c + 60] = slot;
+        }
+        else
+        {
+            s32 z = M->floorZ[k + 1];   // middle of the two row pairs
+            s32 px = planeX * z, py = planeY * z;
+            s32 cstep = (r < FP_FLOOR_MID || r >= FP_FLOOR_NEAR) ? 2 : 1;
+            s32 sx = ((px * 2184) >> 16) * cstep, sy = ((py * 2184) >> 16) * cstep;
+            s32 wx = camX * 256 + dirX * z + (((px >> 6) * -64428) >> 10);
+            s32 wy = camY * 256 + dirY * z + (((py >> 6) * -64428) >> 10);
+            const u8 *lutRow = lut + lvl * 512;
+            const u8 *t = NULL;
+            s32 lastCx = -1000, lastCy = -1000;
+
+            nk = 2;
+            for (c = 0; c < FP_SMOOTH_COLS; c += cstep)
+            {
+                s32 ye0 = ye[c], ye1 = cstep == 2 ? ye[c + 1] : 0;
+
+                // blocks that lie entirely above the wall bottom are covered by the wall: skip them (the position still advances)
+                if (r + 1 >= ye0 || (cstep == 2 && r + 1 >= ye1))
+                {
+                    s32 cx = wx >> 16, cy = wy >> 16;
+                    u32 pix, slot;
+
+                    if (cx != lastCx || cy != lastCy)
+                    {
+                        t = FloorCell(cx, cy);
+                        lastCx = cx;
+                        lastCy = cy;
+                    }
+                    pix = t[(((wy >> 12) & 15) << 4) | ((wx >> 12) & 15)];
+                    slot = lutRow[pix];
+                    if (!slot)
+                        slot = PixSlot(lvl, pix);
+                    slot *= 0x01010101;
+                    if (r >= ye0)
+                        dst[c] = dst[c + 60] = slot;
+                    if (r + 1 >= ye0)
+                        dst[c + 120] = dst[c + 180] = slot;
+                    if (cstep == 2)
+                    {
+                        if (r >= ye1)
+                            dst[c + 1] = dst[c + 61] = slot;
+                        if (r + 1 >= ye1)
+                            dst[c + 121] = dst[c + 181] = slot;
+                    }
+                }
+                wx += sx;
+                wy += sy;
+            }
+        }
     }
 }
 
@@ -1222,20 +1431,21 @@ static void DrawSmooth(u32 page)
     if (pos.x != sFp.winX || pos.y != sFp.winY)
         SmoothResetWindow(pos.x, pos.y);
 
-    FillBackground(vram);
     for (c = 0; c < FP_SMOOTH_COLS; c++)
     {
         s32 camx = (((c * FP_SMOOTH_COLW + FP_SMOOTH_COLW / 2 - 120) * 546) >> 8);
         s32 rayX = dirX + (planeX * camx >> 8), rayY = dirY + (planeY * camx >> 8);
         s32 mapX = camX >> 8, mapY = camY >> 8;
-        s32 deltaX = rayX ? 65536 / (rayX < 0 ? -rayX : rayX) : 0x3FFFFFFF;
-        s32 deltaY = rayY ? 65536 / (rayY < 0 ? -rayY : rayY) : 0x3FFFFFFF;
+        s32 aX = rayX < 0 ? -rayX : rayX, aY = rayY < 0 ? -rayY : rayY;
+        s32 deltaX = aX ? M->recipRay[aX > 511 ? 511 : aX] : 0x3FFFFFFF;
+        s32 deltaY = aY ? M->recipRay[aY > 511 ? 511 : aY] : 0x3FFFFFFF;
         s32 stepX = rayX < 0 ? -1 : 1, stepY = rayY < 0 ? -1 : 1;
         s32 sideX = rayX < 0 ? (fracX * deltaX) >> 8 : ((256 - fracX) * deltaX) >> 8;
         s32 sideY = rayY < 0 ? (fracY * deltaY) >> 8 : ((256 - fracY) * deltaY) >> 8;
         s32 side = 0, i, perp = 0;
         bool32 hit = FALSE;
         u16 zFar = 0xFFFF;
+        s32 ys = FP_HORIZON, ye = FP_HORIZON;
 
         for (i = 0; i < 9; i++)
         {
@@ -1277,10 +1487,10 @@ static void DrawSmooth(u32 page)
                 if (rayY > 0)
                     tx = 15 - tx;
             }
-            u = 6553600 / perp;                                   // pixels per cell, Q8
+            u = M->recipPerp[perp > 2559 ? 2559 : perp] << 2;     // pixels per cell, Q8
             ybotQ8 = FP_HORIZON * 256 + u / 2;
             ytopQ8 = FP_HORIZON * 256 - u * (2 * face->h - 1) / 2;
-            step = 268435456 / u;                                 // texels per pixel, Q16
+            step = (perp * 10486) >> 8;                           // texels per pixel, Q16 (2^28 / u)
             {
                 s32 y0 = ytopQ8 < 0 ? 0 : ytopQ8 >> 8;
 
@@ -1300,12 +1510,21 @@ static void DrawSmooth(u32 page)
                 if (y1 > FP_ROWS)
                     y1 = FP_ROWS;
                 if (y1 > y0)
-                    WallStrip(vram + y0 * 240 + c * FP_SMOOTH_COLW, (y1 - y0 + FP_SMOOTH_ROWH - 1) / FP_SMOOTH_ROWH, face, tx, p0, step, M->lut[lvl], lvl);
+                {
+                    s32 cnt = (y1 - y0 + FP_SMOOTH_ROWH - 1) / FP_SMOOTH_ROWH;
+
+                    WallStrip(vram + y0 * 240 + c * FP_SMOOTH_COLW, cnt, face, tx, p0, step, M->lut[lvl], lvl);
+                    ys = y0;
+                    ye = y0 + cnt * FP_SMOOTH_ROWH;
+                }
             }
         }
+        SkyStrip(vram + c * FP_SMOOTH_COLW, ys >> 1, M->skyPan + ((((sFp.angleQ4 >> 4) + ((c * 1213 >> 10) - 35)) & (FP_SKY_W - 1)) * (FP_SKY_R / 4)), M->skyTab);
+        M->colYe[c] = ye >> 1;
         for (i = 0; i < FP_SMOOTH_COLW / 2; i++)
             M->cols[c * (FP_SMOOTH_COLW / 2) + i].z = zFar;
     }
+    FloorRows(vram, camX, camY, dirX, dirY, planeX, planeY);
 
     // billboards (same renderer as the stepping view)
     {
@@ -1649,7 +1868,9 @@ static void RenderBackPage(bool32 entering)
         REG_DISPCNT |= DISPCNT_FORCED_BLANK;   // the field BGs would show garbage while VRAM is overwritten
     }
     {
-        u32 t0 = gMain.vblankCounter1 * 228 + REG_VCOUNT;
+        REG_TM3CNT_H = 0;
+        REG_TM3CNT_L = 0;
+        REG_TM3CNT_H = TIMER_ENABLE | TIMER_64CLK;   // render time probe: 64 cycles per tick
         s32 lines;
 
         if (sFp.smooth)
@@ -1659,9 +1880,8 @@ static void RenderBackPage(bool32 entering)
             sFp.smoothReady = FALSE;
             Draw(page);
         }
-        lines = (s32)(gMain.vblankCounter1 * 228 + REG_VCOUNT - t0);
-        if (lines < 0)
-            lines = 0;   // VCOUNT / frame counter read raced a VBlank
+        lines = (s32)(REG_TM3CNT_L * 5 / 96);   // scanlines (1232 cycles)
+        REG_TM3CNT_H = 0;
         gFpStats[0] = lines;
         gFpStats[1]++;
         gFpStats[2] += lines;
