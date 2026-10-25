@@ -33,6 +33,11 @@ Walls whose distance is between FP_NEAR_LO and FP_NEAR_HI (about 1.6 to 2 cells,
 instead of one 4 px column (shared depth, only the texture column differs), so facade detail such as window bars and signs stays sharp. Walls closer than that have
 texels wider than the block already; farther walls stay cheap 4 px columns.
 
+Fog and shading (smooth/free renderer): three fog bands (near under 2.5 cells = original palette, 2.5 to 4.5 cells a light tint, beyond that a strong haze
+blend) from a (level, pixel) LUT, side faces darker and slightly cool, the last row pair of a wall within 4 cells is darker (own LUT level), a soft band on the floor
+below walls within 4 cells and a dark 2 px line on the side face at building corners (post pass `WallShading`, slot -> darker slot maps). New shading stops adding palette
+colours above 232 slots (`FP_DARK_MAX`) instead of falling back to nearest-colour errors. `gFpPolishOff` (debug) shows the previous look.
+
 ## How it works
 
 Code: `src/first_person.c`, `include/first_person.h`, hooks in `src/overworld.c`, `src/field_control_avatar.c`, `src/malloc.c`.

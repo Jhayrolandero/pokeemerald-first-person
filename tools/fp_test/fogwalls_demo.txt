@@ -1,0 +1,19 @@
+# walk up to the houses and look around; POLISHOFF 1 = previous look, 0 = new fog bands + wall shading (side by side mp4). PREFIX/POLISHOFF replaced by sed
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+poke16 gFpPolishOff POLISHOFF
+run 60
+capture PREFIX 2
+run 10
+hold UP 70
+hold LEFT 14
+hold UP 40
+hold RIGHT 28
+hold UP 40
+hold LEFT 14
+hold UP+R 40
+hold UP+LEFT 30
+release
+run 20

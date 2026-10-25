@@ -1,0 +1,19 @@
+# render cost at fixed poses (no movement): gFpNearOff 2 forces a redraw every frame (near-field 2 px columns off in all runs, so the numbers are comparable between builds)
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+poke16 gFpNearOff 2
+run 30
+perf open_field 40
+hold RIGHT 26
+release
+run 30
+perf treeline 40
+hold LEFT 26
+release
+hold UP 26
+release
+run 30
+perf building 40

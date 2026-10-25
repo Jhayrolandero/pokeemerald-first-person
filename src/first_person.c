@@ -76,7 +76,8 @@
 #define FP_FLOOR_MID    56            // floor row pairs from here: 4x4 blocks (z < ~1.5 cells)
 #define FP_FLOOR_NEAR   64            // floor row pairs from here: 8x4 blocks again (a texel is wider than 6 px)
 #define FP_SKY_R        40            // sky rows (2 px each) above the horizon
-#define FP_LEVELS       8             // 4 fog levels x {front, side}
+#define FP_DARK_MAX     232           // shading that needs extra palette colours stops adding them above this many slots
+#define FP_LEVELS       16            // 4 fog levels x {front, side} x {normal, wall base (darker, contact shadow)}
 #define FP_PAGE_SIZE    0xA000
 #define FP_DECOMP_HEADROOM 14000   // the tANS decoder allocates ~11 KB of scratch on top
 #define FP_DECOMP_SLACK 128        // the smol decoder can write a little past the nominal output size
@@ -154,6 +155,8 @@ struct FpMem
     u8 skyBuilt;
     u16 recipPerp[2560];              // (6553600 / perp) >> 2: wall height in px per cell (Q8), no per-column division
     u16 recipRay[512];                // 65536 / |ray component| (Q8), capped at 65535
+    struct FpEdge { u8 kind, p, y0, y1; } colEdge[FP_SMOOTH_COLS_MAX];   // per smooth column: 0 no wall, 1 front face, 2 side face; depth (Q4 cells); wall rows
+    u8 darkMap[2][256];                      // slot -> darker slot (wall base / corner shading), 0 = not built yet
     u8 colYe[FP_SMOOTH_COLS_MAX];            // per smooth column: first row pair below the wall (floor starts here)
     u8 floorLvl[FP_ROWS / 2 - FP_SKY_R];    // fog level per floor row pair (4 = haze)
     u16 floorZ[FP_ROWS / 2 - FP_SKY_R];     // floor row depth, Q8 cells
@@ -205,7 +208,10 @@ static EWRAM_DATA struct
 
 #define M (sFp.m)
 
-static const u16 sFog[4] = { 0, 50, 112, 172 };
+// fog blend towards the haze colour (of 256) per band: near (full palette contrast), two middle bands, far (silhouettes still readable)
+static const u16 sFog[4] = { 0, 36, 128, 128 };   // three bands (level 3 unused: fewer palette colours)
+static const u16 sFogOld[4] = { 0, 50, 112, 172 };
+EWRAM_DATA u16 gFpPolishOff = 0;   // debug: the test harness writes 1 to get the previous look (fog bands, side shade, no wall base / corner shading), 2 = 1 plus one redraw
 
 // ---------------------------------------------------------------- colours
 
@@ -244,14 +250,27 @@ static u8 GetSlot(u16 c)
 
 static u16 ShadeColor(u16 c, u32 lvl)
 {
-    u32 fog = sFog[lvl & 3];
+    u32 fog = gFpPolishOff ? sFogOld[lvl & 3] : sFog[lvl & 3];
     u32 r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
 
-    if (lvl & 4)
+    if ((lvl & 8) && !gFpPolishOff)
+    {
+        r = r * 184 >> 8;
+        g = g * 184 >> 8;
+        b = b * 184 >> 8;
+    }
+    if ((lvl & 4) && gFpPolishOff)
     {
         r = r * 190 >> 8;
         g = g * 190 >> 8;
         b = b * 190 >> 8;
+    }
+    else if (lvl & 4)
+    {
+        // side faces (the other wall axis): darker with a slightly cool shadow, so facades and side walls read as different planes
+        r = r * 156 >> 8;
+        g = g * 164 >> 8;
+        b = b * 184 >> 8;
     }
     r = (r * (256 - fog) + M->haze[0] * fog) >> 8;
     g = (g * (256 - fog) + M->haze[1] * fog) >> 8;
@@ -261,12 +280,15 @@ static u16 ShadeColor(u16 c, u32 lvl)
 
 // (colour 0 of a General-tileset pixel in the smooth renderer is the matted-out part of a far scenery wall block: dark tree green, palette entry 36)
 // The slow path is out of line: PixSlot is inlined into the IWRAM wall / floor loops.
+static inline u32 PixSlot(u32 lvl, u32 pix);
 static __attribute__((noinline)) u32 PixSlotSlow(u32 lvl, u32 pix)
 {
     u32 src = pix;
 
     if (!pix && sFp.smooth && gMapHeader.mapLayout->primaryTileset == &gTileset_General)
         src = 36;
+    if ((lvl & 8) && M->numSlots >= FP_DARK_MAX)
+        return M->lut[lvl][pix] = PixSlot(lvl & 7, pix);   // palette nearly full: no contact shadow rather than nearest-colour errors
     return M->lut[lvl][pix] = GetSlot(ShadeColor(M->srcPal[src], lvl));
 }
 
@@ -281,7 +303,9 @@ static inline u32 PixSlot(u32 lvl, u32 pix)
 
 static u32 FogLevel(s32 z)
 {
-    return z < 512 ? 0 : z < 896 ? 1 : z < 1280 ? 2 : 3;
+    if (gFpPolishOff)
+        return z < 512 ? 0 : z < 896 ? 1 : z < 1280 ? 2 : 3;
+    return z < 640 ? 0 : z < 1152 ? 1 : 2;
 }
 
 // ---------------------------------------------------------------- textures
@@ -1140,6 +1164,7 @@ static void Draw(u32 page)
     // fresh palette each frame
     memset(M->slotQ, 0, sizeof(M->slotQ));
     memset(M->lut, 0, sizeof(M->lut));
+    memset(M->darkMap, 0, sizeof(M->darkMap));
     memset(M->texPin, 0, sizeof(M->texPin));
     memset(M->solid, 0, sizeof(M->solid));
     memset(M->cellTex, 0, sizeof(M->cellTex));
@@ -1306,6 +1331,7 @@ bool8 FirstPerson_IsActive(void)
 #define FP_ANGLE_STEP   102            // Q4 angle units per tick: 1024 / 102 = ~10 ticks per 90 degrees
 #define FP_PLANE        307            // tan(half FOV) in Q8 (1.2 = focal length 100 px, half screen 120 px)
 
+EWRAM_DATA u8 gFpSlots[2] = {0};      // palette slots used by the last render / the most used by any render (255 = full: nearest-colour fallback)
 EWRAM_DATA u32 gFpStats[4] = {0};      // 0: last render (scanlines), 1: renders, 2: scanlines sum, 3: max scanlines
 
 static inline s32 SinB(s32 a) { return gSineTable[a & 255]; }
@@ -1583,6 +1609,7 @@ static void SmoothInit(void)
 
     memset(M->slotQ, 0, sizeof(M->slotQ));
     memset(M->lut, 0, sizeof(M->lut));
+    memset(M->darkMap, 0, sizeof(M->darkMap));
     memset(M->texId, 0, sizeof(M->texId));
     M->numSlots = 0;
     M->pal[0] = 0;
@@ -1781,7 +1808,7 @@ struct FpWall
     const struct FpFace *face;
     s32 tx, y0, y1, p0, step, lvl, ytopQ8, mapX, mapY, perp;
     u16 zFar, zScen;
-    bool8 hit, side, flip;
+    bool8 hit, side, flip, scen;   // scen: the wall is a far scenery block (tree, fence), not a building
 };
 
 // Casts the ray through the screen offset px2 (half pixels from the centre) and fills
@@ -1802,6 +1829,7 @@ static void CastCol(const struct FpCast *cs, s32 px2, s32 rh, struct FpWall *w)
     u32 k;
 
     w->hit = FALSE;
+    w->scen = FALSE;
     w->zFar = 0xFFFF;
     w->zScen = 0xFFFF;
     w->y0 = w->y1 = FP_HORIZON;
@@ -1831,7 +1859,8 @@ static void CastCol(const struct FpCast *cs, s32 px2, s32 rh, struct FpWall *w)
 
             if (zNow >= FP_SCENERY_WALL)
             {
-                w->hit = TRUE;   // far scenery is a cheap wall block (the billboards would cost too much, and the trees are small there)
+                w->hit = TRUE;
+                w->scen = TRUE;   // far scenery is a cheap wall block (the billboards would cost too much, and the trees are small there)
                 break;
             }
             if (w->zScen == 0xFFFF)
@@ -1925,6 +1954,84 @@ full:
     CastCol(cs, px2, rh, w);
 }
 
+// Wall shading pass (ROM, after the floor): a soft contact shadow where a wall meets the floor (two bands) and a dark line on the
+// side face next to a vertical corner or a depth jump. Pixels are remapped through slot -> darker slot maps (built lazily),
+// whole words are read and written because VRAM does not take byte writes.
+static __attribute__((noinline)) u32 DarkSlow(u32 s, u32 m)
+{
+    u16 c = M->pal[s];
+    u32 f = 184;   // same factor as the wall-base fog level (lvl & 8), so both land on the same palette slots
+
+    if (M->numSlots >= FP_DARK_MAX)
+        return M->darkMap[m][s] = s;
+    return M->darkMap[m][s] = GetSlot((((c & 31) * f >> 8)) | ((((c >> 5) & 31) * f >> 8) << 5) | ((((c >> 10) & 31) * f >> 8) << 10));
+}
+
+static inline u32 DarkPix(u32 s, const u8 *map, u32 m)
+{
+    u32 d = map[s];
+
+    return d ? d : (s ? DarkSlow(s, m) : 0);
+}
+
+static u32 DarkWord(u32 v, u32 m)
+{
+    const u8 *map = M->darkMap[m];
+
+    if (v == (v & 255) * 0x01010101)
+        return DarkPix(v & 255, map, m) * 0x01010101;   // a flat 4 px block: one lookup
+
+    return DarkPix(v & 255, map, m) | (DarkPix((v >> 8) & 255, map, m) << 8) | (DarkPix((v >> 16) & 255, map, m) << 16) | (DarkPix(v >> 24, map, m) << 24);
+}
+
+static void EdgeLine(u8 *vram, s32 c, s32 off, const struct FpEdge *e)
+{
+    s32 y;
+    const u8 *map = M->darkMap[0];
+
+    for (y = e->y0; y < e->y1; y++)
+    {
+        u16 *q = (u16 *)(vram + y * 240 + c * 4 + off);
+        u32 v = *q;
+
+        *q = DarkPix(v & 255, map, 0) | (DarkPix(v >> 8, map, 0) << 8);
+    }
+}
+
+static void WallShading(u8 *vram)
+{
+    s32 c;
+
+    for (c = 0; c < FP_SMOOTH_COLS; c++)
+    {
+        const struct FpEdge *e = &M->colEdge[c];
+        u32 *p;
+        s32 y, ye;
+
+        if (!e->kind || (e->kind & 4) || e->p > 64)      // far walls (> 5 cells): the contact band would be a pixel or two
+            continue;
+        ye = e->y1;
+        if (ye + 2 <= FP_ROWS && ye >= FP_HORIZON)
+        {
+            // wall base (last two rows) and the floor under it (two bands)
+            p = (u32 *)(vram + ye * 240 + c * 4);
+            {
+                u32 v0 = p[0], v1 = p[60], d0 = DarkWord(v0, 0);
+
+                p[0] = d0;
+                p[60] = v1 == v0 ? d0 : DarkWord(v1, 0);   // the two rows of a floor block are the same word
+            }
+        }
+        if (c > 0 && M->colEdge[c - 1].kind)
+        {
+            const struct FpEdge *l = &M->colEdge[c - 1];
+            // corner (the wall changes between front and side face): dark 2 px line on the side face
+            if (!((e->kind | l->kind) & 4) && e->kind != l->kind)
+                EdgeLine(vram, (e->kind & 3) == 2 ? c : c - 1, (e->kind & 3) == 2 ? 0 : 2, (e->kind & 3) == 2 ? e : l);
+        }
+    }
+}
+
 static void DrawSmooth(u32 page)
 {
     u8 *vram = (u8 *)VRAM + page * FP_PAGE_SIZE;
@@ -1955,6 +2062,10 @@ static void DrawSmooth(u32 page)
         s32 n = 1, j, ys, ye;
 
         CastCol(&cs, px2, FP_SMOOTH_ROWH, &w[0]);
+        M->colEdge[c].kind = w[0].hit && w[0].y1 > w[0].y0 ? 1 + w[0].side + (w[0].scen ? 4 : 0) : 0;
+        M->colEdge[c].p = w[0].perp >> 4 > 255 ? 255 : w[0].perp >> 4;
+        M->colEdge[c].y0 = w[0].y0;
+        M->colEdge[c].y1 = w[0].y1;
         if (w[0].hit && w[0].zFar >= FP_NEAR_LO && w[0].zFar < FP_NEAR_HI && !gFpNearOff)
         {
             // near wall: two 2 px columns (rays through the pixel centres at 1 and 3 px), 1-row blocks
@@ -1976,7 +2087,18 @@ static void DrawSmooth(u32 page)
             }
             SkyStrip(vram + c * FP_SMOOTH_COLW, ys >> 1, M->skyPan + ((((sFp.angleQ4 >> 4) + ((c * 1213 >> 10) - 35)) & (FP_SKY_W - 1)) * (FP_SKY_R / 4)), M->skyTab);
             if (ye > ys)
-                WallStrip(vram + ys * 240 + c * FP_SMOOTH_COLW, (ye - ys) / FP_SMOOTH_ROWH, w[0].face, w[0].tx, w[0].p0, w[0].step, M->lut[w[0].lvl], w[0].lvl, TRUE);
+            {
+                s32 cnt = (ye - ys) / FP_SMOOTH_ROWH;
+
+                if (cnt > 1 && w[0].y1 < FP_ROWS && w[0].perp < 1024 && !w[0].scen && !gFpPolishOff)
+                {
+                    // last sample row pair darker: contact shadow at the wall base (separate fog level, no extra per pixel work)
+                    WallStrip(vram + ys * 240 + c * FP_SMOOTH_COLW, cnt - 1, w[0].face, w[0].tx, w[0].p0, w[0].step, M->lut[w[0].lvl], w[0].lvl, TRUE);
+                    WallStrip(vram + (ye - FP_SMOOTH_ROWH) * 240 + c * FP_SMOOTH_COLW, 1, w[0].face, w[0].tx, w[0].p0 + (cnt - 1) * w[0].step * FP_SMOOTH_ROWH, w[0].step, M->lut[w[0].lvl + 8], w[0].lvl + 8, TRUE);
+                }
+                else
+                    WallStrip(vram + ys * 240 + c * FP_SMOOTH_COLW, cnt, w[0].face, w[0].tx, w[0].p0, w[0].step, M->lut[w[0].lvl], w[0].lvl, TRUE);
+            }
             M->colYe[c] = ye >> 1;
             M->cols[c * 2].z = M->cols[c * 2 + 1].z = w[0].zFar;
             M->cols[c * 2].zs = M->cols[c * 2 + 1].zs = w[0].zScen;
@@ -2005,7 +2127,17 @@ static void DrawSmooth(u32 page)
                     s32 y0 = w[j].y0;   // drawn over the sky strip (which reaches down to the lower of the two tops)
 
                     if (ye > y0)
-                        WallStrip(vram + y0 * 240 + c * FP_SMOOTH_COLW + j * 2, (ye - y0) / 2, w[j].face, w[j].tx, w[j].p0, w[j].step, M->lut[w[j].lvl], w[j].lvl, FALSE);
+                    {
+                        s32 cnt = (ye - y0) / 2;
+
+                        if (cnt > 1 && w[j].y1 < FP_ROWS && w[j].perp < 1024 && !w[j].scen && !gFpPolishOff)
+                        {
+                            WallStrip(vram + y0 * 240 + c * FP_SMOOTH_COLW + j * 2, cnt - 1, w[j].face, w[j].tx, w[j].p0, w[j].step, M->lut[w[j].lvl], w[j].lvl, FALSE);
+                            WallStrip(vram + (ye - 2) * 240 + c * FP_SMOOTH_COLW + j * 2, 1, w[j].face, w[j].tx, w[j].p0 + (cnt - 1) * w[j].step * 2, w[j].step, M->lut[w[j].lvl + 8], w[j].lvl + 8, FALSE);
+                        }
+                        else
+                            WallStrip(vram + y0 * 240 + c * FP_SMOOTH_COLW + j * 2, cnt, w[j].face, w[j].tx, w[j].p0, w[j].step, M->lut[w[j].lvl], w[j].lvl, FALSE);
+                    }
                 }
                 M->cols[c * 2 + j].z = w[j].zFar;
                 M->cols[c * 2 + j].zs = w[j].zScen;
@@ -2014,6 +2146,8 @@ static void DrawSmooth(u32 page)
         }
     }
     FloorRows(vram, camX, camY, dirX, dirY, planeX, planeY);
+    if (!gFpPolishOff)
+        WallShading(vram);
 
     // billboards (same renderer as the stepping view)
     {
@@ -2385,6 +2519,9 @@ static void RenderBackPage(bool32 entering)
         lines = (s32)(REG_TM3CNT_L * 5 / 96);   // scanlines (1232 cycles)
         REG_TM3CNT_H = 0;
         gFpStats[0] = lines;
+        gFpSlots[0] = M->numSlots;
+        if (M->numSlots > gFpSlots[1])
+            gFpSlots[1] = M->numSlots;
         gFpStats[1]++;
         gFpStats[2] += lines;
         if ((u32)lines > gFpStats[3])
@@ -2684,7 +2821,7 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
     if (sFp.smooth)
     {
         SmoothCamera();
-        if (sFp.dirty || gFpNearOff == 2 || sFp.camX != sFp.lastCamX || sFp.camY != sFp.lastCamY || sFp.angleQ4 != sFp.lastAngle || SmoothObjectSignature() != sFp.lastSig)
+        if (sFp.dirty || gFpNearOff == 2 || gFpPolishOff == 2 || sFp.camX != sFp.lastCamX || sFp.camY != sFp.lastCamY || sFp.angleQ4 != sFp.lastAngle || SmoothObjectSignature() != sFp.lastSig)
             RenderBackPage(FALSE);
         return FALSE;
     }

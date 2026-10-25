@@ -55,3 +55,9 @@ Sharper walls (branch fp-free): mid/near-field walls cast as two 2 px columns (F
   perf.sh            fps summary of free_perf.txt + scenery_perf.txt (one line per probe)
   sharp_shots.txt    same-spot before/after shots (fp_sharp_before_*/after_*): harness `poke16 gFpNearOff 2/1/0` turns the near-field columns off/on
   sharp_demo.txt     side-by-side mp4 fp_sharp_demo.mp4 (left: off, right: on)
+Fog and wall shading (branch fp-free): 3 fog bands, front/side face shading, wall-base contact shadow, corner lines.
+  fogwalls_shots.txt  same-spot before/after shots (fp_fogwalls_before_*/after_*, fp_fogwalls_pair_*.png = before | after): harness `poke16 gFpPolishOff 2/1/0`
+                      redraws with the previous look (1) / new look (0)
+  fogwalls_demo.txt   side-by-side mp4 fp_fogwalls_demo.mp4 (left: previous look, right: new)
+  fixed_perf.txt      render cost at fixed poses (gFpNearOff 2 = redraw every frame): compare builds without movement noise
+  gFpSlots[2]         palette slots used by the last render / the most used (peek8 the address from syms.txt; 255 = full)

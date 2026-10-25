@@ -1,0 +1,102 @@
+# fog / wall shading / contact shadow before/after from the SAME spots: the view is shot with the new look (after), then gFpPolishOff 2/1
+# redraws it with the previous look (before), then back. PREFIX replaced by sed (fp_fogwalls)
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+shot PREFIX_after_a.ppm
+poke16 gFpPolishOff 2
+run 12
+poke16 gFpPolishOff 1
+run 12
+shot PREFIX_before_a.ppm
+poke16 gFpPolishOff 0
+run 12
+
+hold UP 26
+release
+run 30
+shot PREFIX_after_b.ppm
+poke16 gFpPolishOff 2
+run 12
+poke16 gFpPolishOff 1
+run 12
+shot PREFIX_before_b.ppm
+poke16 gFpPolishOff 0
+run 12
+
+hold RIGHT 25
+release
+run 30
+shot PREFIX_after_c.ppm
+poke16 gFpPolishOff 2
+run 12
+poke16 gFpPolishOff 1
+run 12
+shot PREFIX_before_c.ppm
+poke16 gFpPolishOff 0
+run 12
+
+hold RIGHT 25
+release
+run 30
+shot PREFIX_after_d.ppm
+poke16 gFpPolishOff 2
+run 12
+poke16 gFpPolishOff 1
+run 12
+shot PREFIX_before_d.ppm
+poke16 gFpPolishOff 0
+run 12
+
+hold RIGHT 25
+release
+run 30
+shot PREFIX_after_e.ppm
+poke16 gFpPolishOff 2
+run 12
+poke16 gFpPolishOff 1
+run 12
+shot PREFIX_before_e.ppm
+poke16 gFpPolishOff 0
+run 12
+
+hold UP 20
+release
+run 30
+shot PREFIX_after_f.ppm
+poke16 gFpPolishOff 2
+run 12
+poke16 gFpPolishOff 1
+run 12
+shot PREFIX_before_f.ppm
+poke16 gFpPolishOff 0
+run 12
+
+load route101.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+shot PREFIX_after_g.ppm
+poke16 gFpPolishOff 2
+run 12
+poke16 gFpPolishOff 1
+run 12
+shot PREFIX_before_g.ppm
+poke16 gFpPolishOff 0
+run 12
+
+hold UP 40
+release
+run 30
+shot PREFIX_after_h.ppm
+poke16 gFpPolishOff 2
+run 12
+poke16 gFpPolishOff 1
+run 12
+shot PREFIX_before_h.ppm
+poke16 gFpPolishOff 0
+run 12
+
