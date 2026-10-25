@@ -23,6 +23,12 @@ In game, press **L** on the overworld to toggle. While on:
 
 Followers (`OW_FOLLOWERS_ENABLED`) and NPCs are drawn as scaled billboards.
 
+Scenery (smooth/free renderer, General tileset only): trees and the grey fence pieces are standing billboards made from their own metatile art,
+with the grass background cut out (`MatteTex`, colour 0 = transparent), depth-tested against walls and sorted with the NPC billboards.
+Beyond about 3 cells they fall back to the old wall blocks (cheap, and the trees are small there). Buildings stay wall blocks. Walking into a
+dense treeline costs about 5 to 8 fps (30 -> 22-25), see `tools/fp_test/scenery_perf.txt`. Free movement speed is scaled by frames per tick when a
+redraw takes more than 2 frames, so slow scenes do not slow walking down.
+
 ## How it works
 
 Code: `src/first_person.c`, `include/first_person.h`, hooks in `src/overworld.c`, `src/field_control_avatar.c`, `src/malloc.c`.

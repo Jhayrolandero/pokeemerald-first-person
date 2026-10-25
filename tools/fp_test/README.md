@@ -47,3 +47,7 @@ Look improvements (branch fp-free): textured floor + generated sky in the smooth
   fp_steps.txt      before/after shots (PREFIX replaced by sed): fp_step0_before_*, fp_step1_floor_*, fp_step2_sky_* ; fp_look.txt open-field looks
   fp_look_demo.mp4  walking demo (free_demo.txt captured with the textured floor and sky)
   NOTE: gFpStats scanlines are now measured with hardware timer 3 (the old VCOUNT/vblankCounter clock was off by up to +-228 lines per render).
+Scenery billboards (branch fp-free): trees and fences as transparent standing billboards in the smooth/free renderer.
+  scenery_shots.txt  before/after shots (PREFIX replaced by sed): fp_scenery_before_a..d.png, fp_scenery_after_a..d.png (Littleroot east treeline)
+  scenery_perf.txt   fps with the treeline in view (standing / walking up to it / turning / strafing); scenery_demo.txt -> fp_scenery_demo.mp4
+  fp_scenery_fence_testmap*.png: fences, shot on a TEMPORARY edit of data/layouts/LittlerootTown/map.bin (reverted; no solid fence is near the start)

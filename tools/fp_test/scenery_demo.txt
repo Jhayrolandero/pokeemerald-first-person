@@ -1,0 +1,22 @@
+# walk toward and along the Littleroot east treeline with the scenery billboards; captured every emulated frame -> fp_scenery_demo.mp4
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+capture /private/tmp/claude-501/-Users-christianjaylandero-pokemon-pokeemerald-expansion/492ae28d-81d5-43df-a033-99ae281a3700/scratchpad/scv/f 1
+run 15
+hold RIGHT 26
+hold UP 60
+hold R 70
+hold UP+R 40
+hold UP+LEFT 14
+hold UP 30
+hold L 80
+hold UP+RIGHT 14
+hold UP+L 70
+hold RIGHT 16
+hold UP 40
+release
+run 20
+capture off

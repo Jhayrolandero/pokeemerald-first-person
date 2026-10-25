@@ -22,6 +22,7 @@
 #include "script.h"
 #include "text.h"
 #include "trig.h"
+#include "tilesets.h"
 #include "trainer_see.h"
 #include "constants/global.h"
 
@@ -91,6 +92,7 @@ struct FpCol
     s16 ytop, ybot;
     u16 zd;                           // z * 256 / FOCAL
     u8 lvl, tx, height, pad;
+    u16 zs;                           // smooth renderer: scenery deeper than this is hidden behind the first scenery cell of the column
     const u8 *tex[3];
 };
 
@@ -100,6 +102,30 @@ struct FpFace
     u8 ok;
     const u8 *tex[3];                 // top metatile first
 };
+
+#define FP_SCENERY      0xFF           // FpBill.objId of a scenery billboard (tree, bush, fence) instead of an object event
+#define FP_BILLS_MAX    40
+#define FP_SCENERY_DEPTH 320           // scenery this much (Q8 cells) behind the first scenery cell on a screen column is not drawn there
+#define FP_SCENERY_WALL 768            // scenery beyond this depth (Q8 cells) is drawn as a wall block, nearer as billboards
+#define FP_SCENERY_R    5              // scenery is collected within this many cells of the camera
+
+struct FpBill
+{
+    u8 objId;
+    u8 hc;         // scenery: height in cells (1 or 2)
+    s16 u;         // lateral offset, Q8 cells (+ = right)
+    u16 z;         // depth, Q8 cells
+    const u8 *tex[2];   // scenery: metatile textures, top first (16x16 8-bit, 0 = transparent)
+};
+
+struct FpScen
+{
+    s16 x, y;      // cell of the southmost scenery cell of the stack
+    u8 hc;
+    const u8 *tex[2];
+};
+
+#define FP_SCEN_MAX     96
 
 struct FpMem
 {
@@ -118,7 +144,10 @@ struct FpMem
     u8 solid[1024];                   // cell cache indexed by (y & 31, x & 31): 0 unknown, 1 empty, 2 solid
     const u8 *cellTex[1024];          // floor texture per cell; the smooth renderer indexes it by (y & 31, x & 31) and slides it with the window
     struct FpCol cols[FP_COLS];
+    struct FpBill bills[FP_BILLS_MAX];    // billboards of one frame, far to near (object events and scenery)
     struct FpFace faces[FP_WIN * FP_WIN];
+    struct FpScen scen[FP_SCEN_MAX];      // scenery stacks around the cached window (rebuilt when the window moves)
+    u32 scenN;
     // smooth renderer
     u8 skyTab[FP_SKY_R / 2][6];           // per 2 px sky row: palette slot of {sky, cloud edge, cloud core, far ridge, near trees}
     u8 skyPan[FP_SKY_W * (FP_SKY_R / 4)];   // sky panorama, one nibble per (column, 4 px row), generated in code
@@ -230,12 +259,23 @@ static u16 ShadeColor(u16 c, u32 lvl)
     return r | (g << 5) | (b << 10);
 }
 
+// (colour 0 of a General-tileset pixel in the smooth renderer is the matted-out part of a far scenery wall block: dark tree green, palette entry 36)
+// The slow path is out of line: PixSlot is inlined into the IWRAM wall / floor loops.
+static __attribute__((noinline)) u32 PixSlotSlow(u32 lvl, u32 pix)
+{
+    u32 src = pix;
+
+    if (!pix && sFp.smooth && gMapHeader.mapLayout->primaryTileset == &gTileset_General)
+        src = 36;
+    return M->lut[lvl][pix] = GetSlot(ShadeColor(M->srcPal[src], lvl));
+}
+
 static inline u32 PixSlot(u32 lvl, u32 pix)
 {
     u32 s = M->lut[lvl][pix];
 
     if (!s)
-        s = M->lut[lvl][pix] = GetSlot(ShadeColor(M->srcPal[pix], lvl));
+        s = PixSlotSlow(lvl, pix);
     return s;
 }
 
@@ -285,6 +325,45 @@ static void ComposeMetatile(u32 id, u8 *out)
     }
 }
 
+// ---- scenery: solid metatiles of the General primary tileset that are drawn as standing billboards instead of wall blocks (smooth/free
+// renderer only): trees (22/23, 198/199/206, 468-471, 476/477, 484-487) and the grey fence pieces (306-308, 312/313, 320-322, 328-330).
+// Their art sits on a grass background; MatteTex() cuts that grass out (colour 0 = transparent).
+static bool32 SceneryId(u32 id)
+{
+    if (!sFp.smooth || id >= 512 || gMapHeader.mapLayout->primaryTileset != &gTileset_General)
+        return FALSE;
+    return id == 22 || id == 23 || id == 198 || id == 199 || id == 206
+        || (id >= 468 && id <= 471) || id == 476 || id == 477 || (id >= 484 && id <= 487)
+        || (id >= 306 && id <= 308) || id == 312 || id == 313 || (id >= 320 && id <= 322) || (id >= 328 && id <= 330);
+}
+
+// grass background colours (palette 2, entries 12-14) that touch the metatile border (or already transparent pixels) become transparent
+static void MatteTex(u8 *t)
+{
+    bool32 changed = TRUE;
+    s32 x, y;
+
+    while (changed)
+    {
+        changed = FALSE;
+        for (y = 0; y < 16; y++)
+        {
+            for (x = 0; x < 16; x++)
+            {
+                u8 *p = &t[y * 16 + x];
+
+                if (*p - 44u >= 3)
+                    continue;
+                if (x == 0 || y == 0 || x == 15 || y == 15 || !p[-1] || !p[1] || !p[-16] || !p[16])
+                {
+                    *p = 0;
+                    changed = TRUE;
+                }
+            }
+        }
+    }
+}
+
 static const u8 *GetTex(u32 id, bool32 pin)
 {
     u32 i, n;
@@ -314,6 +393,8 @@ static const u8 *GetTex(u32 id, bool32 pin)
     M->texIdx[id & 1023] = i + 1;
     M->texPin[i] = pin;
     ComposeMetatile(id, M->tex[i]);
+    if (SceneryId(id))
+        MatteTex(M->tex[i]);
     return M->tex[i];
 }
 
@@ -330,17 +411,40 @@ static bool32 CellSolid(s32 x, s32 y)
     return MapGridGetCollisionAt(x, y) != 0;
 }
 
-static bool32 SolidAt(s32 px, s32 py, s32 cx, s32 cy)
+// cell kind: 1 empty, 2 solid wall, 3 solid scenery (a billboard in the smooth/free renderer; a wall in the stepping one)
+static __attribute__((noinline)) u32 CellKindSlow(s32 px, s32 py, s32 cx, s32 cy)
 {
     s32 dx = cx - px + 8, dy = cy - py + 8;
-    u8 *e;
+    u32 k;
 
-    if (dx < 0 || dy < 0 || dx >= FP_WIN || dy >= FP_WIN)
-        return CellSolid(cx, cy);
-    e = &M->solid[((cy & 31) << 5) | (cx & 31)];
-    if (!*e)
-        *e = CellSolid(cx, cy) ? 2 : 1;
-    return *e == 2;
+    k = !CellSolid(cx, cy) ? 1 : SceneryId(MapGridGetMetatileIdAt(cx, cy)) ? 3 : 2;
+    if (dx >= 0 && dy >= 0 && dx < FP_WIN && dy < FP_WIN)
+        M->solid[((cy & 31) << 5) | (cx & 31)] = k;
+    return k;
+}
+
+static inline u32 CellKind(s32 px, s32 py, s32 cx, s32 cy)
+{
+    s32 dx = cx - px + 8, dy = cy - py + 8;
+
+    if ((u32)dx < FP_WIN && (u32)dy < FP_WIN)
+    {
+        u32 k = M->solid[((cy & 31) << 5) | (cx & 31)];
+
+        if (k)
+            return k;
+    }
+    return CellKindSlow(px, py, cx, cy);
+}
+
+static bool32 SolidAt(s32 px, s32 py, s32 cx, s32 cy)
+{
+    return CellKind(px, py, cx, cy) >= 2;
+}
+
+static bool32 WallAt(s32 px, s32 py, s32 cx, s32 cy)
+{
+    return CellKind(px, py, cx, cy) == 2;
 }
 
 static void ComputeColumn(struct FpCol *col, s32 a, s32 px, s32 py, s32 fx, s32 fy, s32 rx, s32 ry)
@@ -432,9 +536,13 @@ static void ComputeColumn(struct FpCol *col, s32 a, s32 px, s32 py, s32 fx, s32 
 
 // ---------------------------------------------------------------- render
 
-static const u8 *FloorTex(s32 cx, s32 cy)
+__attribute__((noinline)) static const u8 *FloorTex(s32 cx, s32 cy)
 {
-    return GetTex(MapGridGetMetatileIdAt(cx, cy), FALSE);
+    u32 id = MapGridGetMetatileIdAt(cx, cy);
+
+    if (SceneryId(id))
+        id = 1;   // plain grass under a tree / fence billboard (its own texture has transparent holes)
+    return GetTex(id, FALSE);
 }
 
 static void RenderRows(u8 *vram, s32 px, s32 py, s32 fx, s32 fy, s32 rx, s32 ry)
@@ -527,13 +635,6 @@ static void RenderRows(u8 *vram, s32 px, s32 py, s32 fx, s32 fy, s32 rx, s32 ry)
 
 // ---------------------------------------------------------------- billboards
 
-struct FpBill
-{
-    u8 objId;
-    s16 u;         // lateral offset, Q8 cells (+ = right)
-    u16 z;         // depth, Q8 cells
-};
-
 // sprite shape/size -> size in tiles
 static const u8 sTilesW[3][4] = { { 1, 2, 4, 8 }, { 2, 4, 4, 8 }, { 1, 1, 2, 4 } };
 static const u8 sTilesH[3][4] = { { 1, 2, 4, 8 }, { 1, 1, 2, 4 }, { 2, 4, 4, 8 } };
@@ -576,6 +677,161 @@ static void BillColumn(u16 *dst, const u8 *col, u32 odd, s32 syFix, s32 hInv, s3
     }
 }
 
+// Scenery billboard: same geometry, near plane, fog and wall depth test as DrawBillboard, but a metatile stack (16 texels per cell) as the picture.
+// Always the smooth renderer's 4 x 2 px blocks (a strip is 2 columns). Drawn texel row by texel row: per billboard the texel rows that cover at
+// least one block row are listed once (sSceneryRows); per strip each listed row costs one texture + one palette lookup, then its blocks are stored.
+struct FpSceneryRow
+{
+    const u8 *p;     // 16 texels of this row
+    s16 a, b;        // block rows (2 px) [a, b) it covers on screen
+};
+
+static EWRAM_DATA struct FpSceneryRow sSceneryRows[32];
+
+static __attribute__((noinline)) u32 SlotSlow(u32 lvl, u32 pix)
+{
+    return PixSlot(lvl, pix);
+}
+
+// one strip
+static void SceneryStrip(u32 *dst, const struct FpSceneryRow *r, const struct FpSceneryRow *rEnd, s32 sx, const u8 *lutRow, u32 lvl)
+{
+    for (; r < rEnd; r++)
+    {
+        u32 pix = r->p[sx];
+
+        if (pix)
+        {
+            u32 slot = lutRow[pix];
+            u32 *d = dst + r->a * 120;
+            s32 n = r->b - r->a;
+
+            if (!slot)
+                slot = SlotSlow(lvl, pix);
+            slot *= 0x01010101;
+            do
+            {
+                d[0] = slot;
+                d[60] = slot;
+                d += 120;
+            } while (--n);
+        }
+    }
+}
+
+// the same, 8 px wide (two strips with the same texel column): near billboards, where a texel is 4+ px wide
+static void SceneryStripWide(u32 *dst, const struct FpSceneryRow *r, const struct FpSceneryRow *rEnd, s32 sx, const u8 *lutRow, u32 lvl)
+{
+    for (; r < rEnd; r++)
+    {
+        u32 pix = r->p[sx];
+
+        if (pix)
+        {
+            u32 slot = lutRow[pix];
+            u32 *d = dst + r->a * 120;
+            s32 n = r->b - r->a;
+
+            if (!slot)
+                slot = SlotSlow(lvl, pix);
+            slot *= 0x01010101;
+            do
+            {
+                d[0] = slot;
+                d[1] = slot;
+                d[60] = slot;
+                d[61] = slot;
+                d += 120;
+            } while (--n);
+        }
+    }
+}
+
+static void DrawScenery(u8 *vram, const struct FpBill *b)
+{
+    s32 h = b->hc * 16, sw, sh, left, top, bottom, c, wInv, c0, c1, zD, t, acc, rowLen, y, from, ts, j, m = 0;
+    bool32 coarse;
+    s32 cellPx;
+    u32 lvl;
+    const u8 *lutRow;
+
+    // no divisions (the BIOS divide is slow): cellPx = pixels per cell at this depth, Q8, from the wall height table
+    zD = b->z < FP_BILL_NEAR ? FP_BILL_NEAR : b->z;
+    cellPx = M->recipPerp[zD] << 2;
+    sw = cellPx >> 8;
+    sh = (cellPx * b->hc) >> 8;
+    left = 120 + ((b->u * cellPx) >> 16) - (sw >> 1);
+    bottom = FP_HORIZON + (cellPx >> 9);
+    top = bottom - sh;
+    lvl = FogLevel(zD);
+    if (sw < 1 || sh < 1)
+        return;
+    wInv = (zD * 10486) >> 8;                // texels per pixel, Q16
+    c0 = left >> 1;
+    if (c0 < 0)
+        c0 = 0;
+    c0 &= ~1;
+    c1 = ((left + sw) >> 1) + 1;
+    if (c1 > FP_COLS)
+        c1 = FP_COLS;
+    rowLen = cellPx * 16;                     // screen rows per texel row, Q16
+    from = (top + 1) >> 1;
+    if (from < 0)
+        from = 0;
+    // far away a texel row is thinner than a block row: sample every 2nd / 4th texel row (halves / quarters the work per strip)
+    ts = (cellPx >> 12) >= 3 ? 1 : (cellPx >> 12) >= 2 ? 2 : 4;
+    rowLen *= ts;
+    for (t = 0, acc = 0; t < h; t += ts)
+    {
+        s32 to, tr = t + (ts >> 1);
+
+        acc += rowLen;
+        y = t + ts >= h ? bottom : top + (acc >> 16);
+        to = (y + 1) >> 1;
+        if (to > FP_ROWS / 2)
+            to = FP_ROWS / 2;
+        if (to > from)
+        {
+            sSceneryRows[m].p = b->tex[tr >> 4] + ((tr & 15) << 4);
+            sSceneryRows[m].a = from;
+            sSceneryRows[m].b = to;
+            m++;
+            from = to;
+        }
+    }
+    lutRow = M->lut[lvl];
+    coarse = (cellPx >> 12) >= 4;
+    c0 &= coarse ? ~3 : ~1;
+    for (c = c0; c < c1; c += coarse ? 4 : 2)
+    {
+        s32 sx = ((c * 2 + (coarse ? 4 : 2) - left) * wInv) >> 16;
+        bool32 ok0 = b->z < M->cols[c].z && b->z <= M->cols[c].zs;
+
+        if (coarse)
+        {
+            bool32 ok1 = b->z < M->cols[c + 2].z && b->z <= M->cols[c + 2].zs;
+
+            if (ok0 && ok1 && sx >= 0 && sx < 16)
+            {
+                SceneryStripWide((u32 *)(vram + c * 2), sSceneryRows, sSceneryRows + m, sx, lutRow, lvl);
+                continue;
+            }
+            // an edge (a wall in front of one half): the two strips one by one
+            for (j = 0; j < 2; j++)
+            {
+                s32 cc = c + 2 * j, sxx = ((cc * 2 + 2 - left) * wInv) >> 16;
+
+                if (sxx >= 0 && sxx < 16 && b->z < M->cols[cc].z && b->z <= M->cols[cc].zs)
+                    SceneryStrip((u32 *)(vram + cc * 2), sSceneryRows, sSceneryRows + m, sxx, lutRow, lvl);
+            }
+            continue;
+        }
+        if (sx < 0 || sx >= 16 || !ok0)
+            continue;
+        SceneryStrip((u32 *)(vram + c * 2), sSceneryRows, sSceneryRows + m, sx, lutRow, lvl);
+    }
+}
+
 static EWRAM_DATA s32 sViewDirX = 0, sViewDirY = 0, sViewRightX = 0, sViewRightY = 0;   // camera forward / right (Q8), set before the billboards are drawn
 
 // Is this one of the animation tables laid out like the standard one (face S/N/W/E, go S/N/W/E, ...: direction = animNum & 3)?
@@ -595,15 +851,26 @@ EWRAM_DATA u32 gFpBillLog[64] = {0};
 EWRAM_DATA u32 gFpBillLogN = 0;
 static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
 {
-    const struct ObjectEvent *oe = &gObjectEvents[b->objId];
-    const struct Sprite *spr = &gSprites[oe->spriteId];
-    const struct ObjectEventGraphicsInfo *info = GetObjectEventGraphicsInfo(oe->graphicsId);
-    u32 shape = info->oam->shape, size = info->oam->size;
+    const struct ObjectEvent *oe;
+    const struct Sprite *spr;
+    const struct ObjectEventGraphicsInfo *info;
+    u32 shape, size;
     s32 wt, ht, w, h, sw, sh, left, top, bottom, c, wInv, hInv, c0, c1;
     s32 imageValue = 0, tileOffset, zD;
     const u8 *frame;
     u32 palBase, lvl, hflip;
 
+    if (b->objId == FP_SCENERY)
+    {
+        if (cs == 2 && rs == 2)   // scenery only exists in the smooth renderer
+            DrawScenery(vram, b);
+        return;
+    }
+    oe = &gObjectEvents[b->objId];
+    spr = &gSprites[oe->spriteId];
+    info = GetObjectEventGraphicsInfo(oe->graphicsId);
+    shape = info->oam->shape;
+    size = info->oam->size;
     if (shape > 2)
         return;
     wt = sTilesW[shape][size];
@@ -751,6 +1018,85 @@ static u32 CollectBillboards(struct FpBill *out, s32 px, s32 py, s32 fx, s32 fy,
     return n;
 }
 
+// Scenery billboards for the smooth/free renderer: every solid scenery cell within FP_SCENERY_R of the camera that is in front of it and in view.
+// A column of scenery cells is split into 1-2 cell stacks from its south end; each stack is one billboard at its southmost cell.
+static void BuildScenery(void)
+{
+    s32 cx, cy;
+    u32 n = 0;
+
+    for (cy = sFp.winY - FP_SCENERY_R - 1; cy <= sFp.winY + FP_SCENERY_R + 1; cy++)
+    {
+        for (cx = sFp.winX - FP_SCENERY_R - 1; cx <= sFp.winX + FP_SCENERY_R + 1; cx++)
+        {
+            struct FpScen *e;
+            s32 d;
+            bool32 two;
+
+            if (CellKind(sFp.winX, sFp.winY, cx, cy) != 3)
+                continue;
+            for (d = 0; d < 4 && CellKind(sFp.winX, sFp.winY, cx, cy + 1 + d) == 3; d++)
+                ;
+            if ((d & 1) || n >= FP_SCEN_MAX)
+                continue;
+            two = CellKind(sFp.winX, sFp.winY, cx, cy - 1) == 3;
+            e = &M->scen[n++];
+            e->x = cx;
+            e->y = cy;
+            e->hc = two ? 2 : 1;
+            if (two)
+            {
+                e->tex[0] = GetTex(MapGridGetMetatileIdAt(cx, cy - 1), TRUE);
+                e->tex[1] = GetTex(MapGridGetMetatileIdAt(cx, cy), TRUE);
+            }
+            else
+            {
+                e->tex[0] = GetTex(MapGridGetMetatileIdAt(cx, cy), TRUE);
+                e->tex[1] = NULL;
+            }
+        }
+    }
+    M->scenN = n;
+}
+
+// per frame: the cached scenery stacks that are in front of the camera and in view, merged far-to-near into the billboard list
+static u32 CollectScenery(struct FpBill *out, u32 n, s32 camX, s32 camY, s32 dirX, s32 dirY, s32 rightX, s32 rightY)
+{
+    u32 i;
+
+    for (i = 0; i < M->scenN; i++)
+    {
+        const struct FpScen *e = &M->scen[i];
+        s32 dx = e->x * 256 + 128 - camX, dy = e->y * 256 + 128 - camY;
+        s32 z = (dx * dirX + dy * dirY) >> 8;
+        s32 u, au, j;
+
+        if (z < 128 || z > FP_SCENERY_WALL + 192)
+            continue;
+        u = (dx * rightX + dy * rightY) >> 8;
+        au = u < 0 ? -u : u;
+        if (au - 128 > ((z * 307) >> 8))
+            continue;
+        if (n >= FP_BILLS_MAX)
+        {
+            if (z >= out[0].z)
+                continue;
+            memmove(&out[0], &out[1], (n - 1) * sizeof(out[0]));
+            n--;
+        }
+        for (j = n; j > 0 && out[j - 1].z < z; j--)
+            out[j] = out[j - 1];
+        out[j].objId = FP_SCENERY;
+        out[j].hc = e->hc;
+        out[j].u = u;
+        out[j].z = z;
+        out[j].tex[0] = e->tex[0];
+        out[j].tex[1] = e->tex[1];
+        n++;
+    }
+    return n;
+}
+
 // cheap change signature of everything the billboards depend on (tile, facing, graphics)
 static u32 ObjectSignature(void)
 {
@@ -816,7 +1162,7 @@ static void Draw(u32 page)
 
     CpuCopy16(&gPlttBufferFaded[256], &M->srcPal[256], 256 * 2);
     {
-        struct FpBill bills[12];
+        struct FpBill *bills = M->bills;
         u32 n = CollectBillboards(bills, px, py, fx, fy, rx, ry), i;
 
         sViewDirX = fx * 256;
@@ -1228,6 +1574,7 @@ static void SmoothResetWindow(s32 tx, s32 ty)
     }
     sFp.winX = tx;
     sFp.winY = ty;
+    BuildScenery();
 }
 
 static void SmoothInit(void)
@@ -1443,8 +1790,9 @@ static void DrawSmooth(u32 page)
         s32 sideX = rayX < 0 ? (fracX * deltaX) >> 8 : ((256 - fracX) * deltaX) >> 8;
         s32 sideY = rayY < 0 ? (fracY * deltaY) >> 8 : ((256 - fracY) * deltaY) >> 8;
         s32 side = 0, i, perp = 0;
+        u32 k;
         bool32 hit = FALSE;
-        u16 zFar = 0xFFFF;
+        u16 zFar = 0xFFFF, zScen = 0xFFFF;
         s32 ys = FP_HORIZON, ye = FP_HORIZON;
 
         for (i = 0; i < 9; i++)
@@ -1461,10 +1809,23 @@ static void DrawSmooth(u32 page)
                 mapY += stepY;
                 side = 1;
             }
-            if (SolidAt(sFp.winX, sFp.winY, mapX, mapY))
+            k = CellKind(sFp.winX, sFp.winY, mapX, mapY);
+            if (k == 2)
             {
                 hit = TRUE;
                 break;
+            }
+            if (k == 3)
+            {
+                s32 zNow = side == 0 ? sideX - deltaX : sideY - deltaY;
+
+                if (zNow >= FP_SCENERY_WALL)
+                {
+                    hit = TRUE;   // far scenery is a cheap wall block (the billboards would cost too much, and the trees are small there)
+                    break;
+                }
+                if (zScen == 0xFFFF)
+                    zScen = zNow + FP_SCENERY_DEPTH;
             }
         }
         if (hit)
@@ -1522,13 +1883,16 @@ static void DrawSmooth(u32 page)
         SkyStrip(vram + c * FP_SMOOTH_COLW, ys >> 1, M->skyPan + ((((sFp.angleQ4 >> 4) + ((c * 1213 >> 10) - 35)) & (FP_SKY_W - 1)) * (FP_SKY_R / 4)), M->skyTab);
         M->colYe[c] = ye >> 1;
         for (i = 0; i < FP_SMOOTH_COLW / 2; i++)
+        {
             M->cols[c * (FP_SMOOTH_COLW / 2) + i].z = zFar;
+            M->cols[c * (FP_SMOOTH_COLW / 2) + i].zs = zScen;
+        }
     }
     FloorRows(vram, camX, camY, dirX, dirY, planeX, planeY);
 
     // billboards (same renderer as the stepping view)
     {
-        struct FpBill bills[12];
+        struct FpBill *bills = M->bills;
         u32 n = 0, k, j;
 
         for (k = 0; k < OBJECT_EVENTS_COUNT; k++)
@@ -1552,6 +1916,7 @@ static void DrawSmooth(u32 page)
             bills[j].z = z;
             n++;
         }
+        n = CollectScenery(bills, n, camX, camY, dirX, dirY, rightX, rightY);
         CpuCopy16(&gPlttBufferFaded[256], &M->srcPal[256], 256 * 2);
         sViewDirX = dirX;
         sViewDirY = dirY;
@@ -1584,6 +1949,12 @@ static bool32 LeaveView(bool32 keepWanted, bool32 continueScript);
 #define FP_FREE_WALK    30             // Q8 cells per tick (~3.5 tiles/s at 30 ticks/s)
 #define FP_FREE_RUN     56
 #define FP_FREE_TURN    80             // Q4 angle units per tick (5 brads: a full turn in ~1.7 s)
+
+// The free movement is designed for 30 ticks per second (one tick = one 2-frame redraw). A redraw that takes 3 or more frames (busy scenes,
+// scenery) would slow walking and turning down: the speed per tick is scaled by the frames the tick took, never below 1x (so a 30 fps scene
+// behaves exactly as before). Q1: 2 = 1x.
+static EWRAM_DATA u32 sFreeLastV = 0;
+static EWRAM_DATA s32 sFreeScale = 0;   // 0 until the first tick
 
 static bool32 FreeBoxBlocked(s32 x, s32 y, enum Direction dir)
 {
@@ -1655,7 +2026,7 @@ static void FreeStep(s32 f, s32 s, bool32 run)
     struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
     s32 a = (sFp.angleQ4 >> 4) & 255;
     s32 fwdX = SinB(a), fwdY = -CosB(a), rightX = CosB(a), rightY = SinB(a);
-    s32 sp = run ? FP_FREE_RUN : FP_FREE_WALK;
+    s32 sp = ((run ? FP_FREE_RUN : FP_FREE_WALK) * (sFreeScale < 2 ? 2 : sFreeScale)) >> 1;
     s32 vx = fwdX * f + rightX * s, vy = fwdY * f + rightY * s;
     s32 dx, dy, nx, ny, i;
 
@@ -1753,12 +2124,18 @@ static void FreeInput(u16 *newKeys, u16 *heldKeys, u16 nk, u16 hk, bool32 locked
         return;
     }
     FreeSyncToPlayer();
+    sFreeScale = (s32)(gMain.vblankCounter1 - sFreeLastV);
+    sFreeLastV = gMain.vblankCounter1;
+    if (sFreeScale < 2 || sFreeScale > 8)
+        sFreeScale = 2;   // a pause (battle, menu, text, first tick), not a slow redraw
+    else if (sFreeScale > 5)
+        sFreeScale = 5;
     if (!locked)
     {
         if (hk & DPAD_LEFT)
-            sFp.angleQ4 -= FP_FREE_TURN;
+            sFp.angleQ4 -= (FP_FREE_TURN * sFreeScale) >> 1;
         if (hk & DPAD_RIGHT)
-            sFp.angleQ4 += FP_FREE_TURN;
+            sFp.angleQ4 += (FP_FREE_TURN * sFreeScale) >> 1;
         sFp.angleQ4 &= 4095;
         sFp.targetQ4 = sFp.angleQ4;
         heading = AngleToHeading(sFp.angleQ4);
@@ -2039,6 +2416,8 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
             sFp.free = OW_FIRST_PERSON_FREE;
         }
         sFp.smoothReady = FALSE;
+        if (M)
+            memset(M->texId, 0, sizeof(M->texId));   // scenery textures are matted in smooth mode only
         sFp.freeValid = FALSE;
         sFp.heading = AngleToHeading(sFp.angleQ4);
         sFp.angleQ4 = sFp.targetQ4 = HeadingBrads(sFp.heading) * 16;

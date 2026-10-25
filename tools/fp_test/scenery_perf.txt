@@ -1,0 +1,22 @@
+# frame rate with the Littleroot east treeline in view: standing, walking toward it, turning, strafing along it
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+hold RIGHT 26
+release
+run 30
+perf standing_trees 20
+hold UP 1
+perf walk_toward_trees 70
+release
+run 20
+hold LEFT 1
+perf turn_in_trees 40
+release
+run 20
+hold UP+R 1
+perf strafe_trees 40
+release
+run 10
