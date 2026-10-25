@@ -466,11 +466,6 @@ static bool32 SolidAt(s32 px, s32 py, s32 cx, s32 cy)
     return CellKind(px, py, cx, cy) >= 2;
 }
 
-static bool32 WallAt(s32 px, s32 py, s32 cx, s32 cy)
-{
-    return CellKind(px, py, cx, cy) == 2;
-}
-
 static void ComputeColumn(struct FpCol *col, s32 a, s32 px, s32 py, s32 fx, s32 fy, s32 rx, s32 ry)
 {
     s32 z, pcx = px, pcy = py;
@@ -2014,7 +2009,7 @@ static void WallShading(u8 *vram)
     {
         const struct FpEdge *e = &M->colEdge[c];
         u32 *p;
-        s32 y, ye;
+        s32 ye;
 
         if (!e->kind || (e->kind & 4) || e->p > 64)      // far walls (> 5 cells): the contact band would be a pixel or two
             continue;
