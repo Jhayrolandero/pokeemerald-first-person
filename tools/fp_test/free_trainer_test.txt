@@ -1,0 +1,40 @@
+# free movement on Route 102: walk south into the trainers' line of sight; the sight scripts (text, battle) must start through the normal check
+load route102.state
+run 60
+press L 4
+waitmode 4 400
+run 40
+regs start
+hold UP 100
+release
+run 100
+regs after_walk
+shot fp_free_trainer_00.ppm
+run 150
+shot fp_free_trainer_01.ppm
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+press A 8
+run 40
+run 300
+regs later

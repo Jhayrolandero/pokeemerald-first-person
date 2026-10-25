@@ -21,6 +21,7 @@
 #include "script.h"
 #include "text.h"
 #include "trig.h"
+#include "trainer_see.h"
 #include "constants/global.h"
 
 /*
@@ -127,6 +128,7 @@ static struct
     u8 heading;        // view direction (independent of the player's facing: stepping back does not turn)
     bool8 headingValid;
     bool8 interactPending;  // after the reload, feed one A press to the normal field code
+    bool8 reshowMessage;    // a script's text box was dropped by the reload: draw it again from gStringVar4
     s8 turnQueue;      // -1 left, +1 right, applied when the player is on a tile centre
     u16 mapKey;
     bool8 dirty;
@@ -138,6 +140,9 @@ static struct
     s32 angleQ4, targetQ4; // view angle in 1/4096 turn (north = 0, east = 1024), animated towards the target
     s32 camX, camY;        // camera position, Q8 cells
     s32 lastCamX, lastCamY, lastAngle;
+    bool8 free;            // free movement (OW_FIRST_PERSON_FREE): the player has a sub-tile position and a free angle
+    bool8 freeValid;
+    s32 freeX, freeY;      // free position, Q8 cells (absolute tile coordinates, like the object event coords)
     s16 winX, winY;        // centre tile of the cached cell window
     s16 restX[OBJECT_EVENTS_COUNT], restY[OBJECT_EVENTS_COUNT];   // per object: sprite position minus tile*16 when standing still
     s16 lastSprX[OBJECT_EVENTS_COUNT], lastSprY[OBJECT_EVENTS_COUNT];
@@ -929,7 +934,13 @@ static void SmoothTrackObjects(void)
 static void SmoothCamera(void)
 {
     SmoothTrackObjects();
-    SmoothObjPos(gPlayerAvatar.objectEventId, &sFp.camX, &sFp.camY);
+    if (sFp.free && sFp.freeValid)
+    {
+        sFp.camX = sFp.freeX;
+        sFp.camY = sFp.freeY;
+    }
+    else
+        SmoothObjPos(gPlayerAvatar.objectEventId, &sFp.camX, &sFp.camY);
 }
 
 // change signature of the objects that can be seen from the current camera (in front, in range, inside the field of view)
@@ -1269,6 +1280,180 @@ static void DrawSmooth(u32 page)
     sFp.lastSig = SmoothObjectSignature();
 }
 
+static u16 DirToKey(enum Direction d);
+static bool32 LeaveView(bool32 keepWanted, bool32 continueScript);
+
+// ---------------------------------------------------------------- free movement
+/*
+ * OW_FIRST_PERSON_FREE: the player has a sub-tile position (sFp.freeX/Y, a static, no SaveBlock data) and a free angle.
+ *  - Collision: a small box (radius FP_FREE_RADIUS) against the real map. Every tile the box would newly touch is asked the game's
+ *    own GetCollisionAtCoords() (impassable / water / elevation / ledges / other object events), per axis so walls are slid along.
+ *  - Triggers: whenever the position enters a new tile the real player object event is moved there (MoveObjectEventToMapCoords) and
+ *    for that tick the avatar state is set to "finished a step" (T_TILE_CENTER + MOVING), so the normal FieldGetPlayerInput /
+ *    ProcessPlayerFieldInput path does the step counter, coord events, warps, wild encounters, trainer sight and so on.
+ *    Holding Up also passes the facing direction key, which the door / arrow warp and sign checks need; PlayerStep itself never
+ *    sees it (FirstPerson_FreeMovement), so the avatar is never walked by the normal movement code.
+ */
+#define FP_FREE_RADIUS  64             // Q8 cells (0.25)
+#define FP_FREE_WALK    30             // Q8 cells per tick (~3.5 tiles/s at 30 ticks/s)
+#define FP_FREE_RUN     56
+#define FP_FREE_TURN    80             // Q4 angle units per tick (5 brads: a full turn in ~1.7 s)
+
+static bool32 FreeBoxBlocked(s32 x, s32 y, enum Direction dir)
+{
+    struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
+    s32 cx0 = (x - FP_FREE_RADIUS) >> 8, cx1 = (x + FP_FREE_RADIUS - 1) >> 8;
+    s32 cy0 = (y - FP_FREE_RADIUS) >> 8, cy1 = (y + FP_FREE_RADIUS - 1) >> 8;
+    s32 cx, cy;
+
+    for (cy = cy0; cy <= cy1; cy++)
+    {
+        for (cx = cx0; cx <= cx1; cx++)
+        {
+            if (cx == pl->currentCoords.x && cy == pl->currentCoords.y)
+                continue;
+            if (GetCollisionAtCoords(pl, cx, cy, dir) != COLLISION_NONE)
+                return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static void FreeSyncToPlayer(void)
+{
+    const struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
+
+    if (!sFp.freeValid || (sFp.freeX >> 8) != pl->currentCoords.x || (sFp.freeY >> 8) != pl->currentCoords.y)
+    {
+        // first use, or the player was moved by something else (warp, map connection, script): restart at the tile centre
+        sFp.freeX = pl->currentCoords.x * 256 + 128;
+        sFp.freeY = pl->currentCoords.y * 256 + 128;
+        sFp.freeValid = TRUE;
+    }
+}
+
+static void FreeStep(s32 f, s32 s, bool32 run)
+{
+    struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
+    s32 a = (sFp.angleQ4 >> 4) & 255;
+    s32 fwdX = SinB(a), fwdY = -CosB(a), rightX = CosB(a), rightY = SinB(a);
+    s32 sp = run ? FP_FREE_RUN : FP_FREE_WALK;
+    s32 vx = fwdX * f + rightX * s, vy = fwdY * f + rightY * s;
+    s32 dx, dy, nx, ny;
+
+    if (f && s)
+    {
+        vx = vx * 181 >> 8;
+        vy = vy * 181 >> 8;
+    }
+    dx = vx * sp >> 8;
+    dy = vy * sp >> 8;
+    if (dx)
+    {
+        nx = sFp.freeX + dx;
+        if (!FreeBoxBlocked(nx, sFp.freeY, dx > 0 ? DIR_EAST : DIR_WEST))
+            sFp.freeX = nx;
+    }
+    if (dy)
+    {
+        ny = sFp.freeY + dy;
+        if (!FreeBoxBlocked(sFp.freeX, ny, dy > 0 ? DIR_SOUTH : DIR_NORTH))
+            sFp.freeY = ny;
+    }
+    if ((sFp.freeX >> 8) != pl->currentCoords.x || (sFp.freeY >> 8) != pl->currentCoords.y)
+    {
+        // entered a new tile: move the real player there and let the normal "finished a step" hooks run this tick
+        s32 tdx = (sFp.freeX >> 8) - pl->currentCoords.x, tdy = (sFp.freeY >> 8) - pl->currentCoords.y;
+
+        MoveObjectEventToMapCoords(pl, sFp.freeX >> 8, sFp.freeY >> 8);
+        ObjectEventUpdateElevation(pl, &gSprites[pl->spriteId]);
+        // the field camera normally follows the player's sprite one tile at a time; do the same tile step by hand so that
+        // gSaveBlock1Ptr->pos, map connections (route changes) and object event spawning / despawning stay in step
+        if (tdx >= -1 && tdx <= 1 && tdy >= -1 && tdy <= 1)
+        {
+            CameraMove(tdx, tdy);
+            UpdateObjectEventsForCameraUpdate(tdx, tdy);
+            if (gCamera.active)
+            {
+                // a map connection was crossed: the new map has its own coordinate origin
+                sFp.freeX += gCamera.x * 256;
+                sFp.freeY += gCamera.y * 256;
+            }
+        }
+        gPlayerAvatar.tileTransitionState = T_TILE_CENTER;
+        gPlayerAvatar.runningState = MOVING;
+    }
+}
+
+static enum Direction AngleToHeading(s32 angleQ4)
+{
+    switch ((((angleQ4 >> 4) + 32) >> 6) & 3)
+    {
+    case 1:  return DIR_EAST;
+    case 2:  return DIR_SOUTH;
+    case 3:  return DIR_WEST;
+    default: return DIR_NORTH;
+    }
+}
+
+// Called every tick while the free view is shown: turns, strafes and walks, and rewrites the keys for the normal field input code.
+static void FreeInput(u16 *newKeys, u16 *heldKeys, u16 nk, u16 hk, bool32 locked)
+{
+    u16 strip = DPAD_UP | DPAD_DOWN | DPAD_LEFT | DPAD_RIGHT | L_BUTTON | R_BUTTON;
+    s32 f = (hk & DPAD_UP) ? 1 : (hk & DPAD_DOWN) ? -1 : 0;
+    s32 s = (hk & R_BUTTON) ? 1 : (hk & L_BUTTON) ? -1 : 0;
+    enum Direction heading;
+
+    FreeSyncToPlayer();
+    if (!locked)
+    {
+        if (hk & DPAD_LEFT)
+            sFp.angleQ4 -= FP_FREE_TURN;
+        if (hk & DPAD_RIGHT)
+            sFp.angleQ4 += FP_FREE_TURN;
+        sFp.angleQ4 &= 4095;
+        sFp.targetQ4 = sFp.angleQ4;
+        heading = AngleToHeading(sFp.angleQ4);
+        if (heading != sFp.heading || GetPlayerFacingDirection() != heading)
+        {
+            sFp.heading = heading;
+            ObjectEventTurn(&gObjectEvents[gPlayerAvatar.objectEventId], heading);
+        }
+        if (f || s)
+            FreeStep(f, s, (hk & B_BUTTON) != 0);
+    }
+    *newKeys &= ~strip;
+    *heldKeys &= ~strip;
+    if (f > 0 && !locked)
+    {
+        *heldKeys |= DirToKey(sFp.heading);   // for door / arrow warps and signposts (never reaches PlayerStep)
+        if (nk & DPAD_UP)
+            *newKeys |= DirToKey(sFp.heading);
+    }
+}
+
+bool8 FirstPerson_FreeMovement(void)
+{
+    return sFp.shown && sFp.free;
+}
+
+void FirstPerson_EndOfInput(void)
+{
+    // The step was only emulated for this tick. If the field input started a script (trainer sight, warp...) instead of calling
+    // PlayerStep, the avatar would stay in MOVING and scripts waiting for IsPlayerStandingStill() would never continue.
+    if (sFp.free && gPlayerAvatar.runningState == MOVING)
+    {
+        gPlayerAvatar.runningState = NOT_MOVING;
+        gPlayerAvatar.tileTransitionState = T_NOT_MOVING;
+    }
+    // A script was just started by the field input (trainer sight, coord event, bg event...). It has not run yet: park it and
+    // reload now. One frame later it would already have created tasks (trainer approach, movement) that the reload destroys.
+    // (not for trainer sight: its approach runs on tasks and object movement that the reload would destroy; it is parked later,
+    // when its first text box opens)
+    if (sFp.shown && ScriptContext_IsEnabled() && gNoOfApproachingTrainers == 0)
+        LeaveView(TRUE, TRUE);
+}
+
 static void RenderBackPage(bool32 entering)
 {
     u32 page = entering ? 0 : sFp.page ^ 1;
@@ -1370,6 +1555,13 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
     bool32 canAct = !ArePlayerFieldControlsLocked() && atCenter;
     u16 nk = *newKeys, hk = *heldKeys;
 
+    if (sFp.reshowMessage && gMain.callback2 == CB2_Overworld && !ScriptContext_IsEnabled())
+    {
+        // the field is back and the parked script has not been re-enabled yet: put its text box back
+        sFp.reshowMessage = FALSE;
+        ShowFieldMessageFromBuffer();
+    }
+
     if (sFp.interactPending)
     {
         // back from the reload: hand the A press to the normal field code once the screen is up
@@ -1386,23 +1578,35 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
             return FALSE;
         sFp.active = TRUE;
         sFp.headingValid = FALSE;
-        sFp.smooth = OW_FIRST_PERSON_SMOOTH;
+        sFp.free = OW_FIRST_PERSON_FREE;
+        sFp.freeValid = FALSE;
+        sFp.smooth = OW_FIRST_PERSON_SMOOTH || OW_FIRST_PERSON_FREE;
     }
-    else if (canAct && (nk & L_BUTTON))
+    else if (canAct && !sFp.free && (nk & L_BUTTON))
     {
         return LeaveView(FALSE, FALSE);
     }
     else if (sFp.shown && canAct && (nk & SELECT_BUTTON) && !(nk & (START_BUTTON | R_BUTTON)))
     {
-        // runtime switch between the smooth renderer and the textured-floor stepping renderer
-        sFp.smooth ^= 1;
+        // runtime switch: free movement -> smooth -> stepping -> free movement
+        if (sFp.free)
+            sFp.free = FALSE;
+        else if (sFp.smooth)
+            sFp.smooth = FALSE;
+        else
+        {
+            sFp.smooth = TRUE;
+            sFp.free = OW_FIRST_PERSON_FREE;
+        }
         sFp.smoothReady = FALSE;
+        sFp.freeValid = FALSE;
+        sFp.heading = AngleToHeading(sFp.angleQ4);
         sFp.angleQ4 = sFp.targetQ4 = HeadingBrads(sFp.heading) * 16;
         sFp.dirty = TRUE;
         *newKeys &= ~SELECT_BUTTON;
         nk &= ~SELECT_BUTTON;
     }
-    else if (sFp.shown && canAct && (nk & (START_BUTTON | SELECT_BUTTON | R_BUTTON)))
+    else if (sFp.shown && canAct && (nk & (START_BUTTON | SELECT_BUTTON | R_BUTTON)) && !(sFp.free && !(nk & (START_BUTTON | SELECT_BUTTON))))
     {
         // menus need BG0, which Mode 4 does not have: leave, swallow the press
         return LeaveView(FALSE, FALSE);
@@ -1428,17 +1632,21 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
         sFp.shown = FALSE;
     }
 
-    if (sFp.shown && (ScriptContext_IsEnabled() || !IsFieldMessageBoxHidden()))
+    if (sFp.shown && ((ScriptContext_IsEnabled() && gNoOfApproachingTrainers == 0) || !IsFieldMessageBoxHidden()))
     {
         // A script started by itself (trainer, step trigger, map script...) or a text box opened: BG0 is not available in
         // Mode 4, so run it in the normal view and come back afterwards. Reloading mid-script and re-entering the view while
         // the trigger is still true used to loop forever (view on / reload / view on ...), hence the script is parked, not dropped.
         bool32 script = ScriptContext_IsEnabled();
 
+        if (!IsFieldMessageBoxHidden())
+            sFp.reshowMessage = TRUE;   // gStringVar4 still holds the expanded text
         return LeaveView(script, script);
     }
 
-    if (sFp.shown)
+    if (sFp.shown && sFp.free)
+        FreeInput(newKeys, heldKeys, nk, hk, !canAct && ArePlayerFieldControlsLocked());
+    else if (sFp.shown)
     {
         // Up = step along the view direction, Down = step back, Left/Right = turn the view only
         u16 dpad = DPAD_UP | DPAD_DOWN | DPAD_LEFT | DPAD_RIGHT;

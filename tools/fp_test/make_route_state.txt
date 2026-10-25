@@ -11,38 +11,38 @@ press A 3
 run 20
 press A 3
 run 20
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
-press UP 3
-run 6
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
+press UP 4
+run 10
 press A 3
 run 20
 press A 3

@@ -34,3 +34,11 @@ Smooth renderer demo (OW_FIRST_PERSON_SMOOTH, branch fp-smooth):
                     fp_smooth_demo_frames.txt = per emulated frame page / RENDER flags / phase
   profile N STRIDE  cycle-weighted pc sampling (pipe the PROF lines to profile.py)
   SELECT toggles smooth <-> stepping (textured floor) at runtime while the view is on.
+Free movement test (OW_FIRST_PERSON_FREE, branch fp-free): Up/Down walk along the view angle, Left/Right turn continuously, L/R strafe, B runs,
+  START leaves the view (the press is swallowed), SELECT cycles free -> smooth -> stepping. L only turns the view ON (while it is off).
+  free_demo.txt        diagonal + curved walking in Littleroot, captured every emulated frame -> fp_free_demo.mp4 (ffmpeg, libx264, 30 fps)
+  free_perf.txt        `perf` probes: walk, turn, strafe, curve, run
+  free_warp_test.txt / free_encounter_test.txt / free_trainer_test.txt + regress_free.sh   door warp, Route 101 wild encounter, Route 102 trainer
+  NOTE: the older test scripts (move_test, interact_test, npc_test, ...) press L to turn the view on and expect the stepping renderer; with the
+  free default they need `press SELECT` twice (or build with OW_FIRST_PERSON_FREE / OW_FIRST_PERSON_SMOOTH FALSE). The fuzz/regress_* scripts work in any mode.
+  make_follower_state.txt now leaves the view with START (L is strafe in free mode).

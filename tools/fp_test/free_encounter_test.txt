@@ -1,0 +1,45 @@
+# free movement on Route 101: turn east (hold LEFT), walk into the tall grass; a wild encounter must start via the normal per-step check
+load route101.state
+run 60
+press L 4
+waitmode 4 400
+run 40
+hold LEFT 28
+release
+run 10
+shot fp_free_enc_00_facing_grass.ppm
+regs before
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+hold UP 120
+hold DOWN 120
+release
+run 60
+regs after
+shot fp_free_enc_01_battle_or_not.ppm
+run 200
+shot fp_free_enc_02_battle.ppm

@@ -224,6 +224,10 @@ int main(int argc, char **argv) {
               fprintf(stderr, "CAMERA off=%d,%d tile=%d,%d pan=%d,%d total=%d,%d sprOff=%d,%d\n", core->busRead8(core, fo), core->busRead8(core, fo + 1), core->busRead8(core, fo + 2), core->busRead8(core, fo + 3),
                       (int16_t)core->busRead16(core, hp), (int16_t)core->busRead16(core, vp), (int16_t)core->busRead16(core, tx), (int16_t)core->busRead16(core, tx + 2), (int16_t)core->busRead16(core, cx), (int16_t)core->busRead16(core, cx + 2)); }
             fprintf(stderr, "FIELDCB fieldCallback=%08x fieldCallback2=%08x mainState=%u locked=%u\n", core->busRead32(core, symbolAddr("gFieldCallback")), core->busRead32(core, symbolAddr("gFieldCallback2")), core->busRead8(core, gm + 0x438), core->busRead8(core, symbolAddr("sLockFieldControls")));
+            { uint32_t oe = symbolAddr("gObjectEvents"), sb1 = core->busRead32(core, symbolAddr("gSaveBlock1Ptr"));
+              fprintf(stderr, "PLAYER obj0 tile=%d,%d prev=%d,%d facing=%u savepos=%d,%d map=%u/%u\n", (int16_t)core->busRead16(core, oe + 0x10), (int16_t)core->busRead16(core, oe + 0x12),
+                      (int16_t)core->busRead16(core, oe + 0x18), (int16_t)core->busRead16(core, oe + 0x1A), core->busRead8(core, oe + 0x18 + 8) & 0xF,
+                      (int16_t)core->busRead16(core, sb1), (int16_t)core->busRead16(core, sb1 + 2), core->busRead8(core, sb1 + 4), core->busRead8(core, sb1 + 5)); }
             fprintf(stderr, "GMAIN cb1=%08x cb2=%08x saved=%08x vblank=%08x\n", core->busRead32(core, gm), core->busRead32(core, gm + 4), core->busRead32(core, gm + 8), core->busRead32(core, gm + 12));
         } else if (!strcmp(cmd, "fuzz")) {
             // fuzz SEED N: N random button actions (hold 1-12 frames, gap 0-25 frames), then idle 600 frames

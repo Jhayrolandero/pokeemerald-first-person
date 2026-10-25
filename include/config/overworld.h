@@ -169,6 +169,7 @@
 
 // First-person (dungeon crawler) overworld view prototype. L button toggles it on the overworld.
 #define OW_FIRST_PERSON                TRUE
+#define OW_FIRST_PERSON_FREE          TRUE       // First-person free movement test (Doom style): Up/Down walk along the view angle, Left/Right turn continuously, L/R strafe, B runs. Implies the smooth renderer. SELECT cycles free / smooth / stepping.
 #define OW_FIRST_PERSON_SMOOTH        TRUE       // Start the first-person view in the smooth per-frame renderer (camera glides, turns are animated). SELECT toggles it at runtime; FALSE = textured-floor stepping renderer.
 
 #endif // GUARD_CONFIG_OVERWORLD_H

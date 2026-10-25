@@ -1,0 +1,21 @@
+# free movement: turn round (hold LEFT), walk north into Brendan's house door; the warp must fire through the normal door-warp check
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+regs start
+hold LEFT 60
+release
+run 10
+regs facing_north
+shot fp_free_warp_00_facing_door.ppm
+hold UP 90
+release
+regs after_walking
+run 120
+shot fp_free_warp_01_inside.ppm
+regs inside
+run 200
+regs settled
+shot fp_free_warp_02_settled.ppm

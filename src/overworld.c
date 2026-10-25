@@ -1672,9 +1672,13 @@ static void DoCB1_Overworld(u16 newKeys, u16 heldKeys)
         }
         else
         {
-            PlayerStep(inputStruct.dpadDirection, newKeys, heldKeys);
+            if (FirstPerson_FreeMovement())
+                PlayerStep(0, newKeys & ~(DPAD_ANY | L_BUTTON | R_BUTTON), heldKeys & ~(DPAD_ANY | L_BUTTON | R_BUTTON));   // free movement moves the avatar itself
+            else
+                PlayerStep(inputStruct.dpadDirection, newKeys, heldKeys);
         }
     }
+    FirstPerson_EndOfInput();
     // If stop running but keep holding B -> fix follower frame.
     if (PlayerHasFollowerNPC() && (gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_ON_FOOT) && IsPlayerStandingStill())
         ObjectEventSetHeldMovement(&gObjectEvents[GetFollowerNPCObjectId()], GetFaceDirectionAnimNum(gObjectEvents[GetFollowerNPCObjectId()].facingDirection));

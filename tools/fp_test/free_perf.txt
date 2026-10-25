@@ -1,0 +1,20 @@
+# frame rate of the free-movement view in Littleroot: walking forward, strafing diagonally, curving (walk + turn), running, standing
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+perf standing 40
+hold UP 1
+perf walk_forward 60
+hold LEFT 1
+perf turning_in_place 30
+hold UP+R 1
+perf diagonal_forward_strafe 60
+hold UP+RIGHT 1
+perf curve_walk_turn 60
+hold UP+B 1
+perf run 40
+release
+run 30
+perf standing_after 30
