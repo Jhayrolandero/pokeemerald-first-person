@@ -1,0 +1,208 @@
+# NPC grounding before/after from identical poses: player 1..5 cells north of the Littleroot villager (object 3), looking south. npcpos remembers where the NPC wanders to (deterministic per build), teleportnpc D stands D cells north of it, the NPC is frozen once the view is up.
+# before = gFpPolishOff 1 (old feet, no shadow), feet = new feet alignment only (gFpShadowOff 1), after = feet + contact shadow.
+# *_hide shots redraw the same view with the NPC hidden (hideobj) so a pixel diff gives the sprite / shadow bounding box (npcground_measure.py). PREFIX replaced by sed (fp_npcground)
+load littleroot.state
+run 30
+teleport 14 11 1
+run 220
+npcpos 3
+
+load littleroot.state
+run 30
+teleportnpc 1
+run 220
+hideobj 3 2
+press L 4
+waitmode 4 400
+run 40
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d1_before.ppm
+hideobj 3 1
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d1_before_hide.ppm
+poke16 gFpPolishOff 0
+hideobj 3 0
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d1_feet.ppm
+hideobj 3 1
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d1_feet_hide.ppm
+hideobj 3 0
+poke16 gFpShadowOff 0
+poke16 gFpNearOff 2
+run 8
+poke16 gFpNearOff 0
+run 8
+shot PREFIX_d1_after.ppm
+
+load littleroot.state
+run 30
+teleportnpc 2
+run 220
+hideobj 3 2
+press L 4
+waitmode 4 400
+run 40
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d2_before.ppm
+hideobj 3 1
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d2_before_hide.ppm
+poke16 gFpPolishOff 0
+hideobj 3 0
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d2_feet.ppm
+hideobj 3 1
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d2_feet_hide.ppm
+hideobj 3 0
+poke16 gFpShadowOff 0
+poke16 gFpNearOff 2
+run 8
+poke16 gFpNearOff 0
+run 8
+shot PREFIX_d2_after.ppm
+
+load littleroot.state
+run 30
+teleportnpc 3
+run 220
+hideobj 3 2
+press L 4
+waitmode 4 400
+run 40
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d3_before.ppm
+hideobj 3 1
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d3_before_hide.ppm
+poke16 gFpPolishOff 0
+hideobj 3 0
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d3_feet.ppm
+hideobj 3 1
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d3_feet_hide.ppm
+hideobj 3 0
+poke16 gFpShadowOff 0
+poke16 gFpNearOff 2
+run 8
+poke16 gFpNearOff 0
+run 8
+shot PREFIX_d3_after.ppm
+
+load littleroot.state
+run 30
+teleportnpc 4
+run 220
+hideobj 3 2
+press L 4
+waitmode 4 400
+run 40
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d4_before.ppm
+hideobj 3 1
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d4_before_hide.ppm
+poke16 gFpPolishOff 0
+hideobj 3 0
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d4_feet.ppm
+hideobj 3 1
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d4_feet_hide.ppm
+hideobj 3 0
+poke16 gFpShadowOff 0
+poke16 gFpNearOff 2
+run 8
+poke16 gFpNearOff 0
+run 8
+shot PREFIX_d4_after.ppm
+
+load littleroot.state
+run 30
+teleportnpc 5
+run 220
+hideobj 3 2
+press L 4
+waitmode 4 400
+run 40
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d5_before.ppm
+hideobj 3 1
+poke16 gFpPolishOff 2
+run 8
+poke16 gFpPolishOff 1
+run 8
+shot PREFIX_d5_before_hide.ppm
+poke16 gFpPolishOff 0
+hideobj 3 0
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d5_feet.ppm
+hideobj 3 1
+poke16 gFpShadowOff 2
+run 8
+poke16 gFpShadowOff 1
+run 8
+shot PREFIX_d5_feet_hide.ppm
+hideobj 3 0
+poke16 gFpShadowOff 0
+poke16 gFpNearOff 2
+run 8
+poke16 gFpNearOff 0
+run 8
+shot PREFIX_d5_after.ppm

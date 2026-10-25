@@ -211,6 +211,7 @@ static EWRAM_DATA struct
 // fog blend towards the haze colour (of 256) per band: near (full palette contrast), two middle bands, far (silhouettes still readable)
 static const u16 sFog[4] = { 0, 36, 128, 128 };   // three bands (level 3 unused: fewer palette colours)
 static const u16 sFogOld[4] = { 0, 50, 112, 172 };
+EWRAM_DATA u16 gFpShadowOff = 0;   // debug: 1 = no NPC contact shadow (feet alignment stays); 2 = also redraw once
 EWRAM_DATA u16 gFpPolishOff = 0;   // debug: the test harness writes 1 to get the previous look (fog bands, side shade, no wall base / corner shading), 2 = 1 plus one redraw
 
 // ---------------------------------------------------------------- colours
@@ -874,6 +875,61 @@ static bool32 StandardAnimLayout(const struct ObjectEvent *oe, const struct Obje
 EWRAM_DATA u32 gFpBillLog[64] = {0};
 EWRAM_DATA u32 gFpBillLogN = 0;
 #endif
+// NPC contact shadow (smooth / free renderer): a flat half-ellipse blob on the floor under a billboard, drawn before the sprite. Pixels are
+// remapped through the slot -> darker slot maps (M->darkMap[0] rim, [1] core), 4 x 2 px blocks like the floor, no blending. Depth tested against
+// the wall columns, clipped to the floor (colYe), skipped beyond 5 cells and when it is off screen.
+#define FP_SHADOW_Z     1280
+static const u8 sShadowProf[8] = { 124, 200, 237, 254, 254, 237, 200, 124 };
+static u32 DarkWord(u32 v, u32 m);
+
+static void DrawShadow(u8 *vram, const struct FpBill *b, s32 zD, s32 floorRow)
+{
+    s32 cellPx = M->recipPerp[zD] << 2;
+    s32 hw = (cellPx * 86) >> 16;                       // half width: 0.34 cell, in px
+    s32 hv = (hw * M->recipPerp[zD] * 5) >> 16;         // half height on the floor: hw * EYE / z (perspective foreshortening)
+    s32 cx = 120 + ((b->u * cellPx) >> 16);
+    s32 ra, rb, n, i;
+
+    if (hw < 3 || cx + hw < 0 || cx - hw >= 240)
+        return;
+    ra = (floorRow - hv) >> 1;
+    rb = (floorRow + hv + 2) >> 1;
+    if (rb - ra < 1)
+        rb = ra + 1;
+    if (ra < FP_HORIZON / 2)
+        ra = FP_HORIZON / 2;
+    if (rb > FP_ROWS / 2)
+        rb = FP_ROWS / 2;
+    n = rb - ra;
+    for (i = n >> 1; i < n; i++)   // the upper half is behind the sprite (the blob is narrower than it): not drawn
+    {
+        s32 ry = ra + i, w = (hw * sShadowProf[n == 1 ? 3 : ((2 * i + 1) * 4) / n]) >> 8, c0 = (cx - w) >> 2, c1 = (cx + w) >> 2, c;
+        s32 core = w >> 1;
+        bool32 interior = n < 3 || (i > 0 && i < n - 1);
+
+        if (c0 < 0)
+            c0 = 0;
+        if (c1 > 59)
+            c1 = 59;
+        for (c = c0; c <= c1; c++)
+        {
+            u32 *p;
+            u32 v0, v1, d0, m;
+            s32 dx = c * 4 + 2 - cx;
+
+            if (ry < M->colYe[c] || b->z >= M->cols[c * 2].z)
+                continue;
+            m = interior && (dx < 0 ? -dx : dx) < core;
+            p = (u32 *)(vram + ry * 2 * 240 + c * 4);
+            v0 = p[0];
+            v1 = p[60];
+            d0 = DarkWord(v0, m);
+            p[0] = d0;
+            p[60] = v1 == v0 ? d0 : DarkWord(v1, m);
+        }
+    }
+}
+
 static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
 {
     const struct ObjectEvent *oe;
@@ -992,6 +1048,30 @@ static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
     lvl = FogLevel(zD);
     if (sw < 1 || sh < 1)
         goto done;
+    if (cs == 2 && rs == 2 && !gFpPolishOff)
+    {
+        // feet: the sprite art keeps 0-2 empty rows under the feet; shift the picture down so the lowest opaque row stands on the floor
+        // (the floor row of this depth, the same projection as a wall's bottom edge). The shadow is centred on that floor row.
+        s32 gap = 0, x;
+
+        for (; gap < 3; gap++)
+        {
+            const u8 *row = frame + (ht - 1) * wt * 32 + (7 - gap) * 4;
+
+            for (x = 0; x < wt; x++)
+                if (row[x * 32] | row[x * 32 + 1] | row[x * 32 + 2] | row[x * 32 + 3])
+                    break;
+            if (x < wt)
+                break;
+        }
+        if (b->z <= FP_SHADOW_Z && !gFpShadowOff)
+            DrawShadow(vram, b, zD, bottom);
+        if (gap)
+        {
+            bottom += sh * gap / h;
+            top += sh * gap / h;
+        }
+    }
     wInv = (w << 16) / sw;
     hInv = (h << 16) / sh;
     c0 = left / 2;
@@ -1963,7 +2043,7 @@ full:
 static __attribute__((noinline)) u32 DarkSlow(u32 s, u32 m)
 {
     u16 c = M->pal[s];
-    u32 f = 184;   // same factor as the wall-base fog level (lvl & 8), so both land on the same palette slots
+    u32 f = m ? 120 : 184;   // map 0: same factor as the wall-base fog level (lvl & 8), so both land on the same palette slots; map 1: NPC shadow core
 
     if (M->numSlots >= FP_DARK_MAX)
         return M->darkMap[m][s] = s;
@@ -2824,7 +2904,7 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
     if (sFp.smooth)
     {
         SmoothCamera();
-        if (sFp.dirty || gFpNearOff == 2 || gFpPolishOff == 2 || sFp.camX != sFp.lastCamX || sFp.camY != sFp.lastCamY || sFp.angleQ4 != sFp.lastAngle || SmoothObjectSignature() != sFp.lastSig)
+        if (sFp.dirty || gFpNearOff == 2 || gFpPolishOff == 2 || gFpShadowOff == 2 || sFp.camX != sFp.lastCamX || sFp.camY != sFp.lastCamY || sFp.angleQ4 != sFp.lastAngle || SmoothObjectSignature() != sFp.lastSig)
             RenderBackPage(FALSE);
         return FALSE;
     }

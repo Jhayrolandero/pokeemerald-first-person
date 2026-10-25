@@ -92,6 +92,7 @@ int main(int argc, char **argv) {
 
     FILE *f = fopen(argv[2], "r");
     char line[512];
+    int npcX = 0, npcY = 0;
     while (fgets(line, sizeof line, f)) {
         char cmd[32], a[256];
         int n = 0;
@@ -239,9 +240,12 @@ int main(int argc, char **argv) {
                 }
                 f++;
             }
-        } else if (!strcmp(cmd, "teleport")) {
+        } else if (!strcmp(cmd, "teleport") || !strcmp(cmd, "teleportnpc")) {
             // teleport X Y [FACING]: write gSaveBlock1Ptr->pos and reload the field through CB2_ReturnToField (puts the player on that tile)
-            int x, y, face = -1; sscanf(line, "%*s %d %d %d", &x, &y, &face);
+            // teleportnpc DIST: the same, DIST cells north of the tile remembered by npcpos, facing south
+            int x, y, face = -1;
+            if (cmd[8]) { int dist = 0; sscanf(line, "%*s %d", &dist); x = npcX; y = npcY - dist; face = 1; }
+            else sscanf(line, "%*s %d %d %d", &x, &y, &face);
             uint32_t sb1 = core->busRead32(core, symbolAddr("gSaveBlock1Ptr")), gm = symbolAddr("gMain");
             core->busWrite16(core, sb1, (uint16_t)x); core->busWrite16(core, sb1 + 2, (uint16_t)y);
             { uint32_t oe = symbolAddr("gObjectEvents"); for (int k = 0; k < 3; k++) { core->busWrite16(core, oe + 0x0C + k * 4, (uint16_t)(x + 7)); core->busWrite16(core, oe + 0x0E + k * 4, (uint16_t)(y + 7)); } }
@@ -252,6 +256,19 @@ int main(int argc, char **argv) {
             unsigned idx, dir; sscanf(line, "%*s %u %u", &idx, &dir);
             uint32_t b = symbolAddr("gObjectEvents") + idx * 0x24 + 0x18;
             core->busWrite8(core, b, (core->busRead8(core, b) & 0xF0) | (dir & 0xF));
+        } else if (!strcmp(cmd, "npcpos")) {
+            // npcpos IDX: remember object IDX's current tile (map coords) for teleportnpc and print it
+            unsigned idx; sscanf(line, "%*s %u", &idx);
+            uint32_t b = symbolAddr("gObjectEvents") + idx * 0x24 + 0x10;
+            npcX = (int16_t)core->busRead16(core, b) - 7; npcY = (int16_t)core->busRead16(core, b + 2) - 7;
+            fprintf(stderr, "NPCPOS %d %d\n", npcX, npcY);
+        } else if (!strcmp(cmd, "hideobj")) {
+            // hideobj IDX 0|1|2: set (1) / clear (0) the object event's invisible flag; 2 = set frozen + invisible-off (freeze in place)
+            unsigned idx, v; sscanf(line, "%*s %u %u", &idx, &v);
+            uint32_t b = symbolAddr("gObjectEvents") + idx * 0x24 + 1;
+            uint8_t cur = core->busRead8(core, b);
+            if (v == 2) cur |= 0x01; else if (v) cur |= 0x20; else cur &= ~0x20;
+            core->busWrite8(core, b, cur);
         } else if (!strcmp(cmd, "regs")) {
             // regs [TAG]: print display registers and gMain callbacks (resolve with: arm-none-eabi-nm -n pokeemerald.elf)
             char tag[64] = ""; if (strlen(line) > 5) { snprintf(tag, sizeof tag, "%s", line + 5); tag[strcspn(tag, "\n")] = 0; }

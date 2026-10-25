@@ -1,0 +1,26 @@
+# walk straight at the Littleroot villager from 5 cells to 1 and back off, captured every frame; PREFIX_A / PREFIX_B dirs: PREFIX replaced by sed.
+# MODE (0 new look, 1 previous look) replaced by sed. Side-by-side mp4 fp_npcground_demo.mp4 (left: previous, right: new)
+load littleroot.state
+run 30
+teleport 14 11 1
+run 220
+npcpos 3
+load littleroot.state
+run 30
+teleportnpc 5
+run 220
+hideobj 3 2
+press L 4
+waitmode 4 400
+run 40
+poke16 gFpPolishOff MODE
+poke16 gFpNearOff 2
+run 4
+poke16 gFpNearOff 0
+capture PREFIX 1
+hold UP 70
+release
+run 20
+hold DOWN 70
+release
+run 10

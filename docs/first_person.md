@@ -38,6 +38,9 @@ blend) from a (level, pixel) LUT, side faces darker and slightly cool, the last 
 below walls within 4 cells and a dark 2 px line on the side face at building corners (post pass `WallShading`, slot -> darker slot maps). New shading stops adding palette
 colours above 232 slots (`FP_DARK_MAX`) instead of falling back to nearest-colour errors. `gFpPolishOff` (debug) shows the previous look.
 
+NPC grounding (smooth\/free renderer): the sprite is shifted down by its empty bottom rows so the feet stand on the floor row of the NPC's depth (same projection as a wall base), and a small contact shadow
+(half ellipse, rim and core through the slot -> darker slot maps, depth tested, clipped to the floor, skipped beyond 5 cells) is drawn under it. `gFpShadowOff` (debug) removes the shadow, `gFpPolishOff` shows the old look.
+
 ## How it works
 
 Code: `src/first_person.c`, `include/first_person.h`, hooks in `src/overworld.c`, `src/field_control_avatar.c`, `src/malloc.c`.
@@ -53,7 +56,7 @@ Code: `src/first_person.c`, `include/first_person.h`, hooks in `src/overworld.c`
 
 - Each redraw is a visible pause: this is a stepping view, not smooth movement.
 - Menus and text boxes cannot show in Mode 4. Text that scripts start by themselves (trainer sight, step triggers) is lost; the view drops back to normal.
-- Billboards do not rotate with facing, have no shadows; water does not animate; side/back building faces reuse the front art.
+- Billboards do not rotate with facing; water does not animate; side/back building faces reuse the front art.
 - Tree vs building is told apart by a metatile id heuristic.
 - IWRAM is nearly full (about 2.9 KB spare); adding IWRAM code can crash the game at boot.
 - A wild encounter (run away) and a trainer battle (win) were tested in first-person and return to the view; other heap-heavy flows are untested. NPCs and followers are skipped if under ~14 KB of heap is free.
@@ -70,4 +73,4 @@ Code: `src/first_person.c`, `include/first_person.h`, hooks in `src/overworld.c`
 - Savestates and `tools/fp_test/syms.txt` are tied to the exact build: run `tools/fp_test/rebuild.sh` after every rebuild.
 - Regression suite: `tools/fp_test/regress_*.sh` (seven scripts; the follower-after-battle one is timing-sensitive, rerun once before calling it a failure).
 - Test hooks: `gFpBillLog` (guarded by `FP_TEST_HOOKS`), `gFpNearOff`, `gFpPolishOff` (redraw the previous look for identical-pose before/after shots).
-- Known gaps: NPC contact shadows and feet alignment not done; bike/surf/rock smash in free mode not reviewed; scenery billboards only for the General tileset; text started by scripts is shown in the normal view after a reload.
+- Known gaps: bike/surf/rock smash in free mode not reviewed; scenery billboards only for the General tileset; text started by scripts is shown in the normal view after a reload.
