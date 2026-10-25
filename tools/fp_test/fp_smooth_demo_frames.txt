@@ -1,0 +1,375 @@
+# fp_smooth_demo frame list. One line per emulated frame (60 Hz), captured by the harness 'capture' command (smooth_demo.txt).
+# columns: frame  displayed-page  RENDER (= the displayed page changed, i.e. a newly rendered frame was shown)  phase
+# fp_smooth_demo.gif = every 2nd emulated frame (30 fps), scaled 3x with nearest neighbour.
+00000 1 - standing
+00001 1 - standing
+00002 1 - standing
+00003 1 - standing
+00004 1 - standing
+00005 1 - standing
+00006 1 - standing
+00007 1 - standing
+00008 1 - standing
+00009 1 - standing
+00010 1 - standing
+00011 1 - standing
+00012 1 - standing
+00013 1 - standing
+00014 1 - standing
+00015 1 - standing
+00016 1 - standing
+00017 1 - standing
+00018 1 - standing
+00019 1 - standing
+00020 1 - walk forward 1
+00021 1 - walk forward 1
+00022 1 - walk forward 1
+00023 1 - walk forward 1
+00024 0 RENDER walk forward 1
+00025 0 - walk forward 1
+00026 1 RENDER walk forward 1
+00027 1 - walk forward 1
+00028 0 RENDER walk forward 1
+00029 0 - walk forward 1
+00030 1 RENDER walk forward 1
+00031 1 - walk forward 1
+00032 0 RENDER walk forward 1
+00033 0 - walk forward 1
+00034 1 RENDER walk forward 1
+00035 1 - walk forward 1
+00036 0 RENDER walk forward 1
+00037 0 - walk forward 1
+00038 1 RENDER walk forward 1
+00039 1 - walk forward 1
+00040 0 RENDER walk forward 1
+00041 0 - walk forward 1
+00042 1 RENDER walk forward 1
+00043 1 - walk forward 1
+00044 0 RENDER walk forward 1
+00045 0 - walk forward 1
+00046 1 RENDER walk forward 1
+00047 1 - walk forward 1
+00048 0 RENDER walk forward 1
+00049 0 - walk forward 1
+00050 1 RENDER walk forward 1
+00051 1 - walk forward 1
+00052 0 RENDER walk forward 1
+00053 0 - walk forward 1
+00054 1 RENDER walk forward 1
+00055 1 - walk forward 1
+00056 1 - walk forward 1
+00057 0 RENDER walk forward 1
+00058 0 - walk forward 1
+00059 1 RENDER walk forward 1
+00060 1 - walk forward 1
+00061 0 RENDER walk forward 1
+00062 0 - walk forward 1
+00063 1 RENDER walk forward 1
+00064 1 - walk forward 1
+00065 0 RENDER walk forward 1
+00066 0 - walk forward 1
+00067 1 RENDER walk forward 1
+00068 1 - walk forward 1
+00069 0 RENDER walk forward 1
+00070 0 - walk forward 1
+00071 1 RENDER walk forward 1
+00072 1 - walk forward 1
+00073 0 RENDER walk forward 1
+00074 0 - walk forward 1
+00075 1 RENDER walk forward 1
+00076 1 - turn left 90deg
+00077 0 RENDER turn left 90deg
+00078 0 - turn left 90deg
+00079 1 RENDER turn left 90deg
+00080 1 - turn left 90deg
+00081 0 RENDER turn left 90deg
+00082 0 - turn left 90deg
+00083 1 RENDER turn left 90deg
+00084 1 - turn left 90deg
+00085 0 RENDER turn left 90deg
+00086 0 - turn left 90deg
+00087 1 RENDER turn left 90deg
+00088 1 - turn left 90deg
+00089 0 RENDER turn left 90deg
+00090 0 - turn left 90deg
+00091 1 RENDER turn left 90deg
+00092 1 - turn left 90deg
+00093 0 RENDER turn left 90deg
+00094 0 - turn left 90deg
+00095 1 RENDER turn left 90deg
+00096 1 - turn left 90deg
+00097 0 RENDER turn left 90deg
+00098 0 - turn left 90deg
+00099 1 RENDER turn left 90deg
+00100 1 - turn left 90deg
+00101 0 RENDER turn left 90deg
+00102 0 - turn left 90deg
+00103 1 RENDER turn left 90deg
+00104 1 - turn left 90deg
+00105 0 RENDER turn left 90deg
+00106 0 - turn left 90deg
+00107 1 RENDER turn left 90deg
+00108 1 - turn left 90deg
+00109 0 RENDER turn left 90deg
+00110 0 - turn left 90deg
+00111 0 - turn left 90deg
+00112 0 - turn left 90deg
+00113 0 - turn left 90deg
+00114 0 - turn left 90deg
+00115 0 - turn left 90deg
+00116 0 - turn left 90deg
+00117 0 - turn left 90deg
+00118 0 - turn left 90deg
+00119 0 - walk east
+00120 0 - walk east
+00121 0 - walk east
+00122 1 RENDER walk east
+00123 1 - walk east
+00124 1 - walk east
+00125 0 RENDER walk east
+00126 0 - walk east
+00127 1 RENDER walk east
+00128 1 - walk east
+00129 0 RENDER walk east
+00130 0 - walk east
+00131 1 RENDER walk east
+00132 1 - walk east
+00133 0 RENDER walk east
+00134 0 - walk east
+00135 1 RENDER walk east
+00136 1 - walk east
+00137 0 RENDER walk east
+00138 0 - walk east
+00139 1 RENDER walk east
+00140 1 - walk east
+00141 0 RENDER walk east
+00142 0 - walk east
+00143 1 RENDER walk east
+00144 1 - walk east
+00145 0 RENDER walk east
+00146 0 - walk east
+00147 1 RENDER walk east
+00148 1 - walk east
+00149 0 RENDER walk east
+00150 0 - walk east
+00151 1 RENDER walk east
+00152 1 - walk east
+00153 0 RENDER walk east
+00154 0 - walk east
+00155 0 - walk east
+00156 1 RENDER walk east
+00157 1 - walk east
+00158 0 RENDER walk east
+00159 0 - walk east
+00160 1 RENDER walk east
+00161 1 - walk east
+00162 0 RENDER walk east
+00163 0 - walk east
+00164 1 RENDER walk east
+00165 1 - walk east
+00166 0 RENDER walk east
+00167 0 - walk east
+00168 1 RENDER walk east
+00169 1 - walk east
+00170 0 RENDER walk east
+00171 0 - walk east
+00172 1 RENDER walk east
+00173 1 - walk east
+00174 0 RENDER walk east
+00175 0 - walk east
+00176 1 RENDER walk east
+00177 1 - walk east
+00178 0 RENDER walk east
+00179 0 - walk east
+00180 1 RENDER walk east
+00181 1 - walk east
+00182 0 RENDER walk east
+00183 0 - walk east
+00184 1 RENDER walk east
+00185 1 - walk east
+00186 0 RENDER walk east
+00187 0 - walk east
+00188 0 - walk east
+00189 1 RENDER walk east
+00190 1 - walk east
+00191 0 RENDER walk east
+00192 0 - walk east
+00193 1 RENDER walk east
+00194 1 - walk east
+00195 0 RENDER walk east
+00196 0 - walk east
+00197 1 RENDER walk east
+00198 1 - walk east
+00199 0 RENDER walk east
+00200 0 - walk east
+00201 1 RENDER walk east
+00202 1 - walk east
+00203 0 RENDER walk east
+00204 0 - walk east
+00205 1 RENDER walk east
+00206 1 - walk east
+00207 0 RENDER walk east
+00208 0 - walk east
+00209 1 RENDER walk east
+00210 1 - walk east
+00211 0 RENDER walk east
+00212 0 - walk east
+00213 1 RENDER walk east
+00214 1 - walk east
+00215 0 RENDER walk east
+00216 0 - walk east
+00217 1 RENDER walk east
+00218 1 - walk east
+00219 0 RENDER walk east
+00220 0 - walk east
+00221 0 - walk east
+00222 1 RENDER walk east
+00223 1 - walk east
+00224 0 RENDER walk east
+00225 0 - walk east
+00226 1 RENDER walk east
+00227 1 - walk east
+00228 0 RENDER walk east
+00229 0 - walk east
+00230 1 RENDER walk east
+00231 1 - walk east
+00232 0 RENDER walk east
+00233 0 - walk east
+00234 1 RENDER walk east
+00235 1 - walk east
+00236 0 RENDER walk east
+00237 0 - walk east
+00238 1 RENDER walk east
+00239 1 - walk east
+00240 0 RENDER walk east
+00241 0 - walk east
+00242 1 RENDER walk east
+00243 1 - walk east
+00244 0 RENDER walk east
+00245 0 - walk east
+00246 1 RENDER walk east
+00247 1 - walk east
+00248 0 RENDER walk east
+00249 0 - walk east
+00250 1 RENDER walk east
+00251 1 - walk east
+00252 0 RENDER walk east
+00253 0 - walk east
+00254 0 - walk east
+00255 0 - walk east
+00256 0 - walk east
+00257 0 - walk east
+00258 0 - walk east
+00259 0 - turn right 90deg
+00260 0 - turn right 90deg
+00261 0 - turn right 90deg
+00262 1 RENDER turn right 90deg
+00263 1 - turn right 90deg
+00264 0 RENDER turn right 90deg
+00265 0 - turn right 90deg
+00266 1 RENDER turn right 90deg
+00267 1 - turn right 90deg
+00268 0 RENDER turn right 90deg
+00269 0 - turn right 90deg
+00270 1 RENDER turn right 90deg
+00271 1 - turn right 90deg
+00272 0 RENDER turn right 90deg
+00273 0 - turn right 90deg
+00274 1 RENDER turn right 90deg
+00275 1 - turn right 90deg
+00276 0 RENDER turn right 90deg
+00277 0 - turn right 90deg
+00278 1 RENDER turn right 90deg
+00279 1 - turn right 90deg
+00280 0 RENDER turn right 90deg
+00281 0 - turn right 90deg
+00282 1 RENDER turn right 90deg
+00283 1 - turn right 90deg
+00284 1 - turn right 90deg
+00285 1 - turn right 90deg
+00286 1 - turn right 90deg
+00287 1 - turn right 90deg
+00288 1 - turn right 90deg
+00289 1 - turn right 90deg
+00290 1 - turn right 90deg
+00291 1 - turn right 90deg
+00292 1 - turn right 90deg
+00293 1 - turn right 90deg
+00294 1 - turn right 90deg
+00295 1 - turn right 90deg
+00296 1 - turn right 90deg
+00297 1 - turn right 90deg
+00298 1 - turn right 90deg
+00299 1 - walk
+00300 1 - walk
+00301 1 - walk
+00302 1 - walk
+00303 1 - walk
+00304 1 - walk
+00305 1 - walk
+00306 0 RENDER walk
+00307 0 - walk
+00308 1 RENDER walk
+00309 1 - walk
+00310 0 RENDER walk
+00311 0 - walk
+00312 1 RENDER walk
+00313 1 - walk
+00314 0 RENDER walk
+00315 0 - walk
+00316 1 RENDER walk
+00317 1 - walk
+00318 0 RENDER walk
+00319 0 - walk
+00320 1 RENDER walk
+00321 1 - walk
+00322 0 RENDER walk
+00323 0 - walk
+00324 1 RENDER walk
+00325 1 - walk
+00326 0 RENDER walk
+00327 0 - walk
+00328 1 RENDER walk
+00329 1 - walk
+00330 0 RENDER walk
+00331 0 - walk
+00332 1 RENDER walk
+00333 1 - walk
+00334 0 RENDER walk
+00335 0 - walk
+00336 1 RENDER walk
+00337 1 - walk
+00338 1 - walk
+00339 1 - walk
+00340 1 - walk
+00341 1 - walk
+00342 1 - walk
+00343 1 - walk
+00344 1 - walk
+00345 1 - walk
+00346 1 - walk
+00347 1 - walk
+00348 1 - walk
+00349 1 - walk
+00350 1 - walk
+00351 1 - walk
+00352 1 - walk
+00353 1 - walk
+00354 1 - walk
+00355 1 - walk
+00356 1 - walk
+00357 1 - walk
+00358 1 - walk
+00359 1 - walk
+00360 1 - walk
+00361 1 - walk
+00362 1 - walk
+00363 1 - walk
+00364 1 - walk
+00365 1 - walk
+00366 1 - walk
+00367 1 - walk
+00368 1 - walk
+00369 1 - walk
+00370 1 - walk
+00371 1 - walk

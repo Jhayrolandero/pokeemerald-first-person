@@ -1,0 +1,24 @@
+# smooth first-person demo in Littleroot: walk forward, turn 90 degrees, walk again (every emulated frame is captured)
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+capture /private/tmp/claude-501/gif/f 1
+run 20
+hold UP 40
+release
+run 16
+hold LEFT 3
+release
+run 40
+hold UP 120
+release
+run 20
+hold RIGHT 3
+release
+run 40
+hold UP 40
+release
+run 30
+capture off

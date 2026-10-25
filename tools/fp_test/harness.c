@@ -41,6 +41,22 @@ static uint32_t symbolAddr(const char *name) {
     return r;
 }
 
+// frame wrapper: optional per-frame capture ("capture PREFIX EVERY", "capture off")
+static uint32_t *g_buf; static unsigned g_w, g_h;
+static char g_capPrefix[256]; static int g_capOn, g_capEvery = 1; static unsigned g_capFrame, g_capIndex;
+static void RunF(struct mCore *core) {
+    core->runFrame(core);
+    if (g_capOn && (g_capFrame++ % g_capEvery) == 0) {
+        char name[300];
+        snprintf(name, sizeof name, "%s_%05u.ppm", g_capPrefix, g_capIndex++);
+        FILE *o = fopen(name, "wb");
+        fprintf(o, "P6\n%u %u\n255\n", g_w, g_h);
+        for (unsigned i = 0; i < g_w * g_h; i++) { uint32_t p = g_buf[i]; fputc(p & 0xFF, o); fputc((p >> 8) & 0xFF, o); fputc((p >> 16) & 0xFF, o); }
+        fclose(o);
+        { char ln[300]; snprintf(ln, sizeof ln, "%s.log", g_capPrefix); FILE *lf = fopen(ln, "a"); uint16_t d = core->busRead16(core, 0x04000000); fprintf(lf, "%05u emu_frame=%u dispcnt=%04x page=%u\n", g_capIndex - 1, g_capFrame - 1, d, (d >> 4) & 1); fclose(lf); }
+    }
+}
+
 static uint32_t parseKeys(char *s) {
     uint32_t k = 0;
     for (char *t = strtok(s, "+"); t; t = strtok(NULL, "+")) {
@@ -69,6 +85,7 @@ int main(int argc, char **argv) {
     unsigned w, h;
     core->desiredVideoDimensions(core, &w, &h);
     uint32_t *buf = calloc(w * h, 4);
+    g_buf = buf; g_w = w; g_h = h;
     core->setVideoBuffer(core, (color_t *) buf, w);
     core->setAudioBufferSize(core, 1024);
     core->reset(core);
@@ -81,13 +98,13 @@ int main(int argc, char **argv) {
         if (line[0] == '#' || sscanf(line, "%31s", cmd) != 1) continue;
         if (!strcmp(cmd, "run")) {
             sscanf(line, "%*s %d", &n);
-            for (int i = 0; i < n; i++) core->runFrame(core);
+            for (int i = 0; i < n; i++) RunF(core);
         } else if (!strcmp(cmd, "press")) {
             sscanf(line, "%*s %255s %d", a, &n);
             core->setKeys(core, parseKeys(a));
-            for (int i = 0; i < n; i++) core->runFrame(core);
+            for (int i = 0; i < n; i++) RunF(core);
             core->setKeys(core, 0);
-            for (int i = 0; i < 8; i++) core->runFrame(core);
+            for (int i = 0; i < 8; i++) RunF(core);
         } else if (!strcmp(cmd, "shot")) {
             sscanf(line, "%*s %255s", a);
             FILE *o = fopen(a, "wb");
@@ -117,7 +134,7 @@ int main(int argc, char **argv) {
             while (f < max) {
                 uint16_t d = core->busRead16(core, 0x04000000);
                 if ((d & 7) == mode && !(d & 0x80)) break;
-                core->runFrame(core);
+                RunF(core);
                 f++;
             }
             fprintf(stderr, "waitmode %u: %u frames\n", mode, f);
@@ -127,7 +144,7 @@ int main(int argc, char **argv) {
             sscanf(line, "%*s %u", &max);
             uint16_t start = core->busRead16(core, 0x04000000) & 0x10;
             while (f < max && (core->busRead16(core, 0x04000000) & 0x10) == start) {
-                core->runFrame(core);
+                RunF(core);
                 f++;
             }
             fprintf(stderr, "waitflip: %u frames\n", f);
@@ -138,11 +155,11 @@ int main(int argc, char **argv) {
             uint16_t start = core->busRead16(core, 0x04000000) & 0x10;
             core->setKeys(core, parseKeys(a));
             while (f < max && (core->busRead16(core, 0x04000000) & 0x10) == start) {
-                core->runFrame(core);
+                RunF(core);
                 f++;
             }
             core->setKeys(core, 0);
-            for (int i = 0; i < 12; i++) core->runFrame(core);
+            for (int i = 0; i < 12; i++) RunF(core);
             fprintf(stderr, "pressflip: %u frames\n", f);
         } else if (!strcmp(cmd, "walkloop")) {
             // walkloop N BLOCK: step Up for BLOCK steps, then Down for BLOCK steps, and so on, up to N steps; stops as soon as DISPCNT leaves Mode 4
@@ -150,10 +167,10 @@ int main(int argc, char **argv) {
             sscanf(line, "%*s %u %u", &n, &blk);
             for (i = 0; i < n && !left; i++) {
                 core->setKeys(core, (i / blk) & 1 ? 1 << GBA_KEY_DOWN : 1 << GBA_KEY_UP);
-                for (f = 0; f < 8; f++) core->runFrame(core);
+                for (f = 0; f < 8; f++) RunF(core);
                 core->setKeys(core, 0);
                 for (f = 0; f < 30; f++) {
-                    core->runFrame(core);
+                    RunF(core);
                     if ((core->busRead16(core, 0x04000000) & 7) != 4) { left = 1; break; }
                 }
             }
@@ -218,22 +235,22 @@ int main(int argc, char **argv) {
                 uint32_t k = 1u << keyset[rand() % (sizeof keyset / sizeof *keyset)];
                 if (rand() % 6 == 0) k |= 1u << keyset[rand() % (sizeof keyset / sizeof *keyset)];
                 core->setKeys(core, k);
-                for (int f = rand() % 12 + 1; f > 0; f--) core->runFrame(core);
+                for (int f = rand() % 12 + 1; f > 0; f--) RunF(core);
                 core->setKeys(core, 0);
-                for (int f = rand() % 26; f > 0; f--) core->runFrame(core);
+                for (int f = rand() % 26; f > 0; f--) RunF(core);
                 if (getenv("FUZZ_LOG")) {
                     uint32_t gm = symbolAddr("gMain"), gb = symbolAddr("sGpuRegBuffer");
                     fprintf(stderr, "FUZZ #%u keys=%03x DISPCNT=%04x shadow=%04x cb2=%08x\n", i, k, core->busRead16(core, 0x4000000), core->busRead16(core, gb), core->busRead32(core, gm + 4));
                 }
             }
             core->setKeys(core, 0);
-            if (!getenv("FUZZ_NOIDLE")) for (int f = 0; f < 600; f++) core->runFrame(core);
+            if (!getenv("FUZZ_NOIDLE")) for (int f = 0; f < 600; f++) RunF(core);
         } else if (!strcmp(cmd, "framelog")) {
             // framelog N: run N frames printing DISPCNT (hardware/shadow) and callbacks each frame
             unsigned n; sscanf(line, "%*s %u", &n);
             uint32_t gm = symbolAddr("gMain"), gb = symbolAddr("sGpuRegBuffer");
             for (unsigned fi = 0; fi < n; fi++) {
-                core->runFrame(core);
+                RunF(core);
                 { uint32_t sc = symbolAddr("sGlobalScriptContext"); fprintf(stderr, "SCRIPT %u status=%u mode=%u scriptPtr=%08x native=%08x\n", fi, core->busRead8(core, symbolAddr("sGlobalScriptContextStatus")), core->busRead8(core, sc + 1), core->busRead32(core, sc + 8), core->busRead32(core, sc + 4)); }
                 fprintf(stderr, "FRAME %u msgbox=%u DISPCNT=%04x shadow=%04x cb2=%08x vblank=%08x\n", fi, core->busRead8(core, symbolAddr("sFieldMessageBoxMode")), core->busRead16(core, 0x4000000), core->busRead16(core, gb), core->busRead32(core, gm + 4), core->busRead32(core, gm + 12));
             }
@@ -267,6 +284,50 @@ int main(int argc, char **argv) {
                 uint32_t h0 = core->busRead32(core, p - 16), h1 = core->busRead32(core, p - 12), h2 = core->busRead32(core, p - 8), h3 = core->busRead32(core, p - 4);
                 fprintf(stderr, "PRINTER node=%08x hdr=%08x %08x size=%u prev=%08x next=%08x isInUse/active byte@+0x1e=%02x nextPrinter=%08x\n", p, h0, h1, h2 & 0x3FFFF, h3, h2, core->busRead8(core, p + 0x1e), core->busRead32(core, p + 0x24));
                 p = core->busRead32(core, p + 0x24);
+            }
+        } else if (!strcmp(cmd, "capture")) {
+            // capture PREFIX [EVERY] | capture off: write every EVERY-th emulated frame as PREFIX_NNNNN.ppm
+            char pre[256] = "";
+            int every = 1;
+            sscanf(line, "%*s %255s %d", pre, &every);
+            if (!strcmp(pre, "off")) g_capOn = 0;
+            else { snprintf(g_capPrefix, sizeof g_capPrefix, "%s", pre); { char ln[300]; snprintf(ln, sizeof ln, "%s.log", pre); remove(ln); } g_capEvery = every > 0 ? every : 1; g_capFrame = 0; g_capIndex = 0; g_capOn = 1; }
+        } else if (!strcmp(cmd, "perf")) {
+            // perf TAG N: run N frames and report page flips (rendered frames) and the in-ROM render time stats (gFpStats)
+            unsigned n; char tag[64] = "";
+            sscanf(line, "%*s %63s %u", tag, &n);
+            uint32_t st = symbolAddr("gFpStats");
+            uint32_t r0 = core->busRead32(core, st + 4), l0 = core->busRead32(core, st + 8);
+            unsigned flips = 0; uint16_t last = core->busRead16(core, 0x04000000) & 0x10;
+            for (unsigned i = 0; i < n; i++) {
+                RunF(core);
+                uint16_t d = core->busRead16(core, 0x04000000);
+                if ((d & 7) == 4 && (d & 0x10) != last) { flips++; }
+                last = d & 0x10;
+            }
+            uint32_t r1 = core->busRead32(core, st + 4), l1 = core->busRead32(core, st + 8);
+            unsigned renders = r1 - r0;
+            fprintf(stderr, "PERF %s: %u frames, %u page flips (%.1f fps), %u renders, avg %.0f scanlines (%.0f cycles) per render, max %u, last %u\n",
+                    tag, n, flips, flips * 60.0 / n, renders, renders ? (double)(l1 - l0) / renders : 0.0, renders ? (double)(l1 - l0) / renders * 1232 : 0.0,
+                    core->busRead32(core, st + 12), core->busRead32(core, st));
+        } else if (!strcmp(cmd, "hold")) {
+            // hold KEYS N: keep KEYS pressed for N frames (no release tail)
+            char k[256] = ""; unsigned n;
+            sscanf(line, "%*s %255s %u", k, &n);
+            core->setKeys(core, parseKeys(k));
+            for (unsigned i = 0; i < n; i++) RunF(core);
+        } else if (!strcmp(cmd, "release")) {
+            core->setKeys(core, 0);
+        } else if (!strcmp(cmd, "profile")) {
+            // profile SAMPLES STRIDE: sample the program counter every STRIDE instructions (pipe the PROF lines to profile.py)
+            unsigned n, stride;
+            sscanf(line, "%*s %u %u", &n, &stride);
+            for (unsigned i = 0; i < n; i++) {
+                uint32_t pc; core->readRegister(core, "pc", &pc);
+                fprintf(stderr, "PROF %08x\n", pc);
+                { int32_t fc0 = core->frameCounter(core); int32_t c0 = core->frameCycles(core); int32_t target = c0 + (int32_t)stride;
+                  while (core->frameCounter(core) == fc0 && core->frameCycles(core) < target) core->step(core);
+                  if (core->frameCounter(core) != fc0) { /* frame boundary: continue */ } }
             }
         } else if (!strcmp(cmd, "peek8")) {
             unsigned addr;

@@ -1,0 +1,18 @@
+# measure frame rate of the smooth first-person renderer in Littleroot: standing, walking towards the lab, turning
+load littleroot.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+perf standing 60
+hold UP 1
+perf walking_1 50
+perf walking_2 50
+release
+run 60
+perf standing_near_wall 30
+hold RIGHT 1
+perf turning 40
+release
+run 30
+perf standing_after_turn 30

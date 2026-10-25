@@ -169,5 +169,6 @@
 
 // First-person (dungeon crawler) overworld view prototype. L button toggles it on the overworld.
 #define OW_FIRST_PERSON                TRUE
+#define OW_FIRST_PERSON_SMOOTH        TRUE       // Start the first-person view in the smooth per-frame renderer (camera glides, turns are animated). SELECT toggles it at runtime; FALSE = textured-floor stepping renderer.
 
 #endif // GUARD_CONFIG_OVERWORLD_H

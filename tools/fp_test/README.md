@@ -27,3 +27,10 @@ Debugging the "stuck between two frames" report (hang in CB2_ReturnToFieldLocal 
   regress_stuck.sh  seeds that used to hang in ReturnToField (text printer node alive across the heap wipe)
   regress_loop.sh   seeds that used to loop view on / reload / view on (house, Mom's mat script after a warp with the view on)
   mom_test.txt      first-person in the house stepping onto Mom's mat; the script and its text run in the normal view
+Smooth renderer demo (OW_FIRST_PERSON_SMOOTH, branch fp-smooth):
+  smooth_perf.txt   frame-rate probe: `perf TAG N` = page flips (rendered frames) in N emulated frames + in-ROM render time (gFpStats, scanlines of 1232 cycles)
+  smooth_demo.txt   walk / turn / walk in Littleroot with `capture PREFIX 1` (every emulated frame -> PPM + PREFIX.log); fp_smooth_demo.gif
+                    is made with: ffmpeg -framerate 60 -i f_%05d.ppm -vf "fps=30,scale=720:480:flags=neighbor,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=none" fp_smooth_demo.gif
+                    fp_smooth_demo_frames.txt = per emulated frame page / RENDER flags / phase
+  profile N STRIDE  cycle-weighted pc sampling (pipe the PROF lines to profile.py)
+  SELECT toggles smooth <-> stepping (textured floor) at runtime while the view is on.

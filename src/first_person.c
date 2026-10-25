@@ -20,6 +20,7 @@
 #include "palette.h"
 #include "script.h"
 #include "text.h"
+#include "trig.h"
 #include "constants/global.h"
 
 /*
@@ -83,6 +84,13 @@ struct FpCol
     const u8 *tex[3];
 };
 
+struct FpFace
+{
+    u8 h;
+    u8 ok;
+    const u8 *tex[3];                 // top metatile first
+};
+
 struct FpMem
 {
     u8 tex[FP_TEX_N][256];
@@ -99,6 +107,9 @@ struct FpMem
     u8 solid[FP_WIN * FP_WIN];        // per-redraw cache: 0 unknown, 1 empty, 2 solid
     const u8 *cellTex[FP_WIN * FP_WIN];
     struct FpCol cols[FP_COLS];
+    struct FpFace faces[FP_WIN * FP_WIN];
+    u16 ceilHW[FP_HORIZON], floorHW[FP_ROWS - FP_HORIZON];   // smooth renderer: per-row colour (2 px)
+    u16 floorBase;
     u32 tiles[];                      // decompressed primary + secondary tileset tiles (size depends on the map)
 };
 
@@ -121,6 +132,18 @@ static struct
     bool8 dirty;
     bool8 vramLock;    // tileset animation uploads must not touch the bitmap pages
     u32 tileBytes;
+    // smooth renderer (OW_FIRST_PERSON_SMOOTH)
+    bool8 smooth;          // per-frame renderer: camera glides between tiles, turns are animated
+    bool8 smoothReady;     // palette/caches initialised for the smooth renderer
+    s32 angleQ4, targetQ4; // view angle in 1/4096 turn (north = 0, east = 1024), animated towards the target
+    s32 camX, camY;        // camera position, Q8 cells
+    s32 lastCamX, lastCamY, lastAngle;
+    s16 winX, winY;        // centre tile of the cached cell window
+    s16 restX[OBJECT_EVENTS_COUNT], restY[OBJECT_EVENTS_COUNT];   // per object: sprite position minus tile*16 when standing still
+    s16 lastSprX[OBJECT_EVENTS_COUNT], lastSprY[OBJECT_EVENTS_COUNT];
+    u8 *sheetBuf[3];       // decompressed sprite sheets kept between frames (compressed follower / OW mon graphics)
+    const void *sheetKey[3];
+    u8 sheetNext;
     struct FpMem *m;
 } sFp;
 
@@ -484,7 +507,7 @@ static const u8 sTilesW[3][4] = { { 1, 2, 4, 8 }, { 2, 4, 4, 8 }, { 1, 1, 2, 4 }
 static const u8 sTilesH[3][4] = { { 1, 2, 4, 8 }, { 1, 1, 2, 4 }, { 2, 4, 4, 8 } };
 
 // one screen column of a billboard (hot loop: IWRAM, ARM)
-FP_IWRAM static void BillColumn(u16 *dst, const u8 *col, u32 odd, s32 syFix, s32 hInv, s32 count, s32 wt, s32 h, const u8 *lutRow, u32 palBase, u32 lvl)
+static void BillColumn(u16 *dst, const u8 *col, u32 odd, s32 syFix, s32 hInv, s32 count, s32 wt, s32 h, const u8 *lutRow, u32 palBase, u32 lvl, s32 cs, s32 rs)
 {
     s32 rowStride = wt * 32;
 
@@ -503,14 +526,25 @@ FP_IWRAM static void BillColumn(u16 *dst, const u8 *col, u32 odd, s32 syFix, s32
 
             if (!slot)
                 slot = PixSlot(lvl, palBase + nib);
-            *dst = slot | (slot << 8);
+            if (cs == 2)
+            {
+                *(u32 *)dst = slot * 0x01010101;
+                if (rs == 2)
+                    *(u32 *)(dst + 120) = slot * 0x01010101;
+            }
+            else
+            {
+                *dst = slot | (slot << 8);
+                if (rs == 2)
+                    dst[120] = slot | (slot << 8);
+            }
         }
-        dst += 120;
-        syFix += hInv;
+        dst += 120 * rs;
+        syFix += hInv * rs;
     }
 }
 
-static void DrawBillboard(u8 *vram, const struct FpBill *b)
+static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
 {
     const struct ObjectEvent *oe = &gObjectEvents[b->objId];
     const struct Sprite *spr = &gSprites[oe->spriteId];
@@ -519,7 +553,6 @@ static void DrawBillboard(u8 *vram, const struct FpBill *b)
     s32 wt, ht, w, h, sw, sh, left, top, bottom, c, wInv, hInv, c0, c1;
     s32 imageValue = 0, tileOffset;
     const u8 *frame;
-    u8 *temp = NULL;
     u32 palBase, lvl, hflip;
 
     if (shape > 2)
@@ -544,12 +577,28 @@ static void DrawBillboard(u8 *vram, const struct FpBill *b)
             tileOffset = 0;
         if (IsCompressedData(info->images->data))
         {
-            u32 total = GetDecompressedDataSize(info->images->data);
+            u32 k;
 
-            if (total > 16384 || GetLargestFreeHeapBlock() < total + FP_DECOMP_HEADROOM || !(temp = AllocUnchecked(total + FP_DECOMP_SLACK)))
-                return;
-            DecompressDataWithHeaderWram(info->images->data, temp);
-            base = temp;
+            for (k = 0; k < 3; k++)
+                if (sFp.sheetBuf[k] && sFp.sheetKey[k] == info->images->data)
+                    break;
+            if (k == 3)
+            {
+                u32 total = GetDecompressedDataSize(info->images->data);
+
+                k = sFp.sheetNext;
+                sFp.sheetNext = (k + 1) % 3;
+                if (sFp.sheetBuf[k])
+                {
+                    Free(sFp.sheetBuf[k]);
+                    sFp.sheetBuf[k] = NULL;
+                }
+                if (total > 16384 || GetLargestFreeHeapBlock() < total + FP_DECOMP_HEADROOM || !(sFp.sheetBuf[k] = AllocUnchecked(total + FP_DECOMP_SLACK)))
+                    return;
+                DecompressDataWithHeaderWram(info->images->data, sFp.sheetBuf[k]);
+                sFp.sheetKey[k] = info->images->data;
+            }
+            base = sFp.sheetBuf[k];
         }
         frame = base + tileOffset * 32;
     }
@@ -572,23 +621,24 @@ static void DrawBillboard(u8 *vram, const struct FpBill *b)
     c0 = left / 2;
     if (c0 < 0)
         c0 = 0;
+    c0 &= ~(cs - 1);
     c1 = (left + sw) / 2 + 1;
     if (c1 > FP_COLS)
         c1 = FP_COLS;
-    for (c = c0; c < c1; c++)
+    for (c = c0; c < c1; c += cs)
     {
-        s32 sx = ((c * 2 + 1 - left) * wInv) >> 16;
+        s32 sx = ((c * 2 + cs - left) * wInv) >> 16;
         s32 y0 = top < 0 ? 0 : top, y1 = bottom > FP_ROWS ? FP_ROWS : bottom;
 
         if (sx < 0 || sx >= w || b->z >= M->cols[c].z)
             continue;
         if (hflip)
             sx = w - 1 - sx;
-        BillColumn((u16 *)(vram + y0 * 240 + c * 2), frame + (sx >> 3) * 32 + ((sx & 7) >> 1), sx & 1, (y0 - top) * hInv, hInv, y1 - y0, wt, h, M->lut[lvl], palBase, lvl);
+        y0 &= ~(rs - 1);
+        BillColumn((u16 *)(vram + y0 * 240 + c * 2), frame + (sx >> 3) * 32 + ((sx & 7) >> 1), sx & 1, (y0 - top) * hInv + (rs - 1) * hInv / 2, hInv, (y1 - y0 + rs - 1) / rs, wt, h, M->lut[lvl], palBase, lvl, cs, rs);
     }
 done:
-    if (temp)
-        Free(temp);
+    return;
 }
 
 static u32 CollectBillboards(struct FpBill *out, s32 px, s32 py, s32 fx, s32 fy, s32 rx, s32 ry)
@@ -688,7 +738,7 @@ static void Draw(u32 page)
         u32 n = CollectBillboards(bills, px, py, fx, fy, rx, ry), i;
 
         for (i = 0; i < n; i++)
-            DrawBillboard(vram, &bills[i]);
+            DrawBillboard(vram, &bills[i], 1, 1);
     }
     sFp.lastSig = ObjectSignature();
 }
@@ -762,8 +812,21 @@ static bool32 Setup(void)
     return TRUE;
 }
 
+static void FreeSheets(void)
+{
+    u32 k;
+
+    for (k = 0; k < 3; k++)
+    {
+        if (sFp.sheetBuf[k])
+            Free(sFp.sheetBuf[k]);
+        sFp.sheetBuf[k] = NULL;
+    }
+}
+
 static void Release(void)
 {
+    FreeSheets();
     if (M)
         Free(M);
     M = NULL;
@@ -776,6 +839,7 @@ static void Release(void)
 void FirstPerson_HeapReset(void)
 {
     M = NULL;
+    memset(sFp.sheetBuf, 0, sizeof(sFp.sheetBuf));
     sFp.shown = FALSE;
     sFp.vramLock = FALSE;
     sFp.pendingFlip = FALSE;
@@ -792,6 +856,419 @@ bool8 FirstPerson_IsActive(void)
     return sFp.active;
 }
 
+// ---------------------------------------------------------------- smooth renderer
+/*
+ * OW_FIRST_PERSON_SMOOTH: per-frame renderer (Wolf3D style) on top of the same Mode 4 double buffer and real tile movement.
+ *  - The camera position is the player's real sub-tile position (sprite pixel offset while a step is in progress), so it glides
+ *    between tiles; the view angle is animated ~10 ticks per 90 degrees.
+ *  - 120 columns (2 px wide), DDA ray cast against the cached cell window, one wall texture column per ray (facade strips taken
+ *    from the metatile cache), flat ceiling / floor with per-row fog bands (no per-pixel floor casting).
+ *  - The palette is persistent (colours are only ever added) so both pages can share it; fog is quantised to 4 levels.
+ *  - Billboards use the same renderer as the stepping mode.
+ * Frame time is measured in gFpStats (scanlines per render, 1232 cycles each).
+ */
+#define FP_SMOOTH_COLW  4              // wall strip width in pixels (2 = 120 columns, 4 = 60 columns)
+#define FP_SMOOTH_COLS  (240 / FP_SMOOTH_COLW)
+#define FP_SMOOTH_ROWH  2              // wall rows drawn per texture sample (1 = full height detail, 2 = 80 vertical samples)
+#define FP_ANGLE_STEP   102            // Q4 angle units per tick: 1024 / 102 = ~10 ticks per 90 degrees
+#define FP_PLANE        307            // tan(half FOV) in Q8 (1.2 = focal length 100 px, half screen 120 px)
+
+EWRAM_DATA u32 gFpStats[4] = {0};      // 0: last render (scanlines), 1: renders, 2: scanlines sum, 3: max scanlines
+
+static inline s32 SinB(s32 a) { return gSineTable[a & 255]; }
+static inline s32 CosB(s32 a) { return gSineTable[(a + 64) & 255]; }
+
+static s32 HeadingBrads(enum Direction d)
+{
+    switch (d)
+    {
+    case DIR_EAST:  return 64;
+    case DIR_SOUTH: return 128;
+    case DIR_WEST:  return 192;
+    default:        return 0;
+    }
+}
+
+// Q8 cell position of an object event: its tile centre plus the sprite's sub-tile pixel offset
+static void SmoothObjPos(u32 i, s32 *x, s32 *y)
+{
+    const struct ObjectEvent *oe = &gObjectEvents[i];
+    const struct Sprite *spr = &gSprites[oe->spriteId];
+    s32 tx = oe->currentCoords.x, ty = oe->currentCoords.y;
+
+    *x = tx * 256 + 128 + (spr->x + spr->x2 - tx * 16 - sFp.restX[i]) * 16;
+    *y = ty * 256 + 128 + (spr->y + spr->y2 - ty * 16 - sFp.restY[i]) * 16;
+}
+
+// keep each object's "standing still" sprite offset up to date (the offset while moving is relative to it)
+static void SmoothTrackObjects(void)
+{
+    u32 i;
+
+    for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
+    {
+        const struct ObjectEvent *oe = &gObjectEvents[i];
+        const struct Sprite *spr;
+        s32 sx, sy;
+
+        if (!oe->active || oe->spriteId >= MAX_SPRITES)
+            continue;
+        spr = &gSprites[oe->spriteId];
+        sx = spr->x + spr->x2;
+        sy = spr->y + spr->y2;
+        if (sx == sFp.lastSprX[i] && sy == sFp.lastSprY[i])
+        {
+            sFp.restX[i] = sx - oe->currentCoords.x * 16;
+            sFp.restY[i] = sy - oe->currentCoords.y * 16;
+        }
+        sFp.lastSprX[i] = sx;
+        sFp.lastSprY[i] = sy;
+    }
+}
+
+static void SmoothCamera(void)
+{
+    SmoothTrackObjects();
+    SmoothObjPos(gPlayerAvatar.objectEventId, &sFp.camX, &sFp.camY);
+}
+
+// change signature of the objects that can be seen from the current camera (in front, in range, inside the field of view)
+static u32 SmoothObjectSignature(void)
+{
+    u32 i, sig = 0;
+    s32 a = (sFp.angleQ4 >> 4) & 255;
+    s32 dirX = SinB(a), dirY = -CosB(a), rightX = CosB(a), rightY = SinB(a);
+
+    for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
+    {
+        const struct ObjectEvent *oe = &gObjectEvents[i];
+        const struct Sprite *spr;
+        s32 ox, oy, dx, dy, z, u;
+
+        if (!oe->active || oe->isPlayer || oe->invisible || oe->spriteId >= MAX_SPRITES)
+            continue;
+        SmoothObjPos(i, &ox, &oy);
+        dx = ox - sFp.camX;
+        dy = oy - sFp.camY;
+        z = (dx * dirX + dy * dirY) >> 8;
+        u = (dx * rightX + dy * rightY) >> 8;
+        if (z < 128 || z > FP_MAX_Z + 128 || (u < 0 ? -u : u) > z * 2)
+            continue;
+        spr = &gSprites[oe->spriteId];
+        sig += (spr->x + spr->x2) * 31 + (spr->y + spr->y2) * 7 + oe->facingDirection + oe->graphicsId * 5 + (i + 1) * 0x10001
+             + spr->animCmdIndex * 13 + spr->animNum * 3;
+    }
+    return sig;
+}
+
+static const struct FpFace *GetFace(s32 cx, s32 cy)
+{
+    static struct FpFace sTemp;
+    s32 dx = cx - sFp.winX + 8, dy = cy - sFp.winY + 8;
+    struct FpFace *f = &sTemp;
+    s32 base = cy, h, i, cap;
+    u32 nPri = GetNumMetatilesInPrimary(gMapHeader.mapLayout);
+    const u8 *tex[3];
+
+    if (dx >= 0 && dy >= 0 && dx < FP_WIN && dy < FP_WIN)
+    {
+        f = &M->faces[dy * FP_WIN + dx];
+        if (f->ok)
+            return f;
+    }
+    // facade = south-most solid cell of this column, then up to `cap` cells north
+    for (i = 0; i < 4 && SolidAt(sFp.winX, sFp.winY, cx, base + 1); i++)
+        base++;
+    cap = (MapGridGetMetatileIdAt(cx, base) < nPri) ? 2 : 3;
+    h = 1;
+    while (h < cap && SolidAt(sFp.winX, sFp.winY, cx, base - h))
+        h++;
+    for (i = 0; i < h; i++)
+        tex[i] = GetTex(MapGridGetMetatileIdAt(cx, base - i), TRUE);
+    for (i = 0; i < h; i++)
+        f->tex[i] = tex[h - 1 - i];
+    f->h = h;
+    f->ok = TRUE;
+    return f;
+}
+
+static u16 AverageFloorColor(s32 tx, s32 ty)
+{
+    const u8 *t = GetTex(MapGridGetMetatileIdAt(tx, ty), FALSE);
+    u32 i, n = 0, r = 0, g = 0, b = 0;
+
+    for (i = 0; i < 256; i += 3)
+    {
+        u16 c;
+
+        if (!t[i])
+            continue;
+        c = M->srcPal[t[i]];
+        r += c & 31;
+        g += (c >> 5) & 31;
+        b += (c >> 10) & 31;
+        n++;
+    }
+    if (!n)
+        return 0x2A52;
+    return (r / n) | ((g / n) << 5) | ((b / n) << 10);
+}
+
+// ceiling / floor colours per row (fog bands)
+static void SmoothBuildRows(void)
+{
+    s32 y;
+    u32 fr = M->floorBase & 31, fg = (M->floorBase >> 5) & 31, fb = (M->floorBase >> 10) & 31;
+
+    for (y = 0; y < FP_HORIZON; y++)
+    {
+        s32 t = (y / 10) * 32 + 16;
+        u32 r = (M->skyTop[0] * (256 - t) + M->haze[0] * t) >> 8;
+        u32 g = (M->skyTop[1] * (256 - t) + M->haze[1] * t) >> 8;
+        u32 b = (M->skyTop[2] * (256 - t) + M->haze[2] * t) >> 8;
+        u32 s = GetSlot(r | (g << 5) | (b << 10));
+
+        M->ceilHW[y] = s | (s << 8);
+    }
+    for (y = FP_HORIZON; y < FP_ROWS; y++)
+    {
+        s32 band = (y - FP_HORIZON) / 6, yc = FP_HORIZON + band * 6 + 3;
+        s32 fz = 25600 / (2 * (yc - FP_HORIZON) + 1);
+        u32 f = fz > FP_MAX_Z ? 230 : fz * 230 / FP_MAX_Z;
+        u32 r = (fr * (256 - f) + M->haze[0] * f) >> 8;
+        u32 g = (fg * (256 - f) + M->haze[1] * f) >> 8;
+        u32 b = (fb * (256 - f) + M->haze[2] * f) >> 8;
+        u32 s = GetSlot(r | (g << 5) | (b << 10));
+
+        M->floorHW[y - FP_HORIZON] = s | (s << 8);
+    }
+}
+
+static void SmoothResetWindow(s32 tx, s32 ty)
+{
+    memset(M->solid, 0, sizeof(M->solid));
+    memset(M->faces, 0, sizeof(M->faces));
+    memset(M->texPin, 0, sizeof(M->texPin));
+    sFp.winX = tx;
+    sFp.winY = ty;
+    M->floorBase = AverageFloorColor(tx, ty);
+    SmoothBuildRows();
+}
+
+static void SmoothInit(void)
+{
+    u32 i;
+
+    memset(M->slotQ, 0, sizeof(M->slotQ));
+    memset(M->lut, 0, sizeof(M->lut));
+    memset(M->texId, 0, sizeof(M->texId));
+    M->numSlots = 0;
+    M->pal[0] = 0;
+    CpuCopy16(&gPlttBufferFaded[256], &M->srcPal[256], 256 * 2);
+    for (i = 0; i < OBJECT_EVENTS_COUNT; i++)
+    {
+        const struct ObjectEvent *oe = &gObjectEvents[i];
+
+        sFp.lastSprX[i] = sFp.lastSprY[i] = -32768;
+        if (oe->active && oe->spriteId < MAX_SPRITES)
+        {
+            const struct Sprite *spr = &gSprites[oe->spriteId];
+
+            sFp.restX[i] = spr->x + spr->x2 - oe->currentCoords.x * 16;
+            sFp.restY[i] = spr->y + spr->y2 - oe->currentCoords.y * 16;
+        }
+    }
+    sFp.winX = -1000;
+    sFp.smoothReady = TRUE;
+}
+
+// Background: ceiling / floor rows are identical across the screen, so they are filled row-run by row-run (BIOS fill, ~25 calls)
+static void FillBackground(u8 *vram)
+{
+    s32 y = 0;
+
+    while (y < FP_ROWS)
+    {
+        u16 v = y < FP_HORIZON ? M->ceilHW[y] : M->floorHW[y - FP_HORIZON];
+        s32 n = 1;
+
+        while (y + n < FP_ROWS && (y + n < FP_HORIZON ? M->ceilHW[y + n] : M->floorHW[y + n - FP_HORIZON]) == v && y + n != FP_HORIZON)
+            n++;
+        CpuFastFill(v | (v << 16), vram + y * 240, n * 240);
+        y += n;
+    }
+}
+
+// One wall strip (FP_SMOOTH_COLW pixels wide), rows y0..y1-1: the hot loop, kept in IWRAM.
+FP_IWRAM static void WallStrip(u8 *dst, s32 count, const struct FpFace *face, s32 tx, s32 pos, s32 step, const u8 *lutRow, u32 lvl)
+{
+    s32 tmax = face->h * 16 - 1;
+
+    while (count-- > 0)
+    {
+        s32 t = pos >> 16;
+        u32 pix, slot;
+
+        if (t > tmax)
+            t = tmax;
+        pix = face->tex[t >> 4][((t & 15) << 4) + tx];
+        slot = lutRow[pix];
+        if (!slot)
+            slot = PixSlot(lvl, pix);
+#if FP_SMOOTH_COLW == 4
+        *(u32 *)dst = slot * 0x01010101;
+#if FP_SMOOTH_ROWH == 2
+        *(u32 *)(dst + 240) = slot * 0x01010101;
+#endif
+#else
+        *(u16 *)dst = slot * 0x0101;
+#if FP_SMOOTH_ROWH == 2
+        *(u16 *)(dst + 240) = slot * 0x0101;
+#endif
+#endif
+        dst += 240 * FP_SMOOTH_ROWH;
+        pos += step * FP_SMOOTH_ROWH;
+    }
+}
+
+static void DrawSmooth(u32 page)
+{
+    u8 *vram = (u8 *)VRAM + page * FP_PAGE_SIZE;
+    s32 a = (sFp.angleQ4 >> 4) & 255;
+    s32 dirX = SinB(a), dirY = -CosB(a), rightX = CosB(a), rightY = SinB(a);
+    s32 planeX = rightX * FP_PLANE >> 8, planeY = rightY * FP_PLANE >> 8;
+    s32 camX = sFp.camX, camY = sFp.camY;
+    s32 fracX = camX & 255, fracY = camY & 255;
+    s32 c;
+    struct MapPosition pos;
+
+    if (!sFp.smoothReady)
+        SmoothInit();
+    GetPlayerPosition(&pos);
+    if (pos.x != sFp.winX || pos.y != sFp.winY)
+        SmoothResetWindow(pos.x, pos.y);
+
+    FillBackground(vram);
+    for (c = 0; c < FP_SMOOTH_COLS; c++)
+    {
+        s32 camx = (((c * FP_SMOOTH_COLW + FP_SMOOTH_COLW / 2 - 120) * 546) >> 8);
+        s32 rayX = dirX + (planeX * camx >> 8), rayY = dirY + (planeY * camx >> 8);
+        s32 mapX = camX >> 8, mapY = camY >> 8;
+        s32 deltaX = rayX ? 65536 / (rayX < 0 ? -rayX : rayX) : 0x3FFFFFFF;
+        s32 deltaY = rayY ? 65536 / (rayY < 0 ? -rayY : rayY) : 0x3FFFFFFF;
+        s32 stepX = rayX < 0 ? -1 : 1, stepY = rayY < 0 ? -1 : 1;
+        s32 sideX = rayX < 0 ? (fracX * deltaX) >> 8 : ((256 - fracX) * deltaX) >> 8;
+        s32 sideY = rayY < 0 ? (fracY * deltaY) >> 8 : ((256 - fracY) * deltaY) >> 8;
+        s32 side = 0, i, perp = 0;
+        bool32 hit = FALSE;
+        u16 zFar = 0xFFFF;
+
+        for (i = 0; i < 9; i++)
+        {
+            if (sideX < sideY)
+            {
+                sideX += deltaX;
+                mapX += stepX;
+                side = 0;
+            }
+            else
+            {
+                sideY += deltaY;
+                mapY += stepY;
+                side = 1;
+            }
+            if (SolidAt(sFp.winX, sFp.winY, mapX, mapY))
+            {
+                hit = TRUE;
+                break;
+            }
+        }
+        if (hit)
+        {
+            const struct FpFace *face = GetFace(mapX, mapY);
+            s32 u, tx, ytopQ8, ybotQ8, step, p0, lvl;
+
+            perp = side == 0 ? sideX - deltaX : sideY - deltaY;
+            if (perp < 40)
+                perp = 40;
+            if (side == 0)
+            {
+                tx = ((camY + (perp * rayY >> 8)) & 255) >> 4;
+                if (rayX < 0)
+                    tx = 15 - tx;
+            }
+            else
+            {
+                tx = ((camX + (perp * rayX >> 8)) & 255) >> 4;
+                if (rayY > 0)
+                    tx = 15 - tx;
+            }
+            u = 6553600 / perp;                                   // pixels per cell, Q8
+            ybotQ8 = FP_HORIZON * 256 + u / 2;
+            ytopQ8 = FP_HORIZON * 256 - u * (2 * face->h - 1) / 2;
+            step = 268435456 / u;                                 // texels per pixel, Q16
+            {
+                s32 y0 = ytopQ8 < 0 ? 0 : ytopQ8 >> 8;
+
+                y0 &= ~(FP_SMOOTH_ROWH - 1);
+                p0 = (s32)(((s64)((y0 * 256 + 128 * FP_SMOOTH_ROWH) - ytopQ8) * step) >> 8);
+                if (p0 < 0)
+                    p0 = 0;
+            }
+            lvl = FogLevel(perp) + (side ? 4 : 0);
+            zFar = perp;
+            {
+                s32 y0 = ytopQ8 >> 8, y1 = ybotQ8 >> 8;
+
+                if (y0 < 0)
+                    y0 = 0;
+                y0 &= ~(FP_SMOOTH_ROWH - 1);
+                if (y1 > FP_ROWS)
+                    y1 = FP_ROWS;
+                if (y1 > y0)
+                    WallStrip(vram + y0 * 240 + c * FP_SMOOTH_COLW, (y1 - y0 + FP_SMOOTH_ROWH - 1) / FP_SMOOTH_ROWH, face, tx, p0, step, M->lut[lvl], lvl);
+            }
+        }
+        for (i = 0; i < FP_SMOOTH_COLW / 2; i++)
+            M->cols[c * (FP_SMOOTH_COLW / 2) + i].z = zFar;
+    }
+
+    // billboards (same renderer as the stepping view)
+    {
+        struct FpBill bills[12];
+        u32 n = 0, k, j;
+
+        for (k = 0; k < OBJECT_EVENTS_COUNT; k++)
+        {
+            const struct ObjectEvent *oe = &gObjectEvents[k];
+            s32 ox, oy, dx, dy, z, u;
+
+            if (!oe->active || oe->isPlayer || oe->invisible || oe->spriteId >= MAX_SPRITES || n >= 12)
+                continue;
+            SmoothObjPos(k, &ox, &oy);
+            dx = ox - camX;
+            dy = oy - camY;
+            z = (dx * dirX + dy * dirY) >> 8;
+            u = (dx * rightX + dy * rightY) >> 8;
+            if (z < 128 || z > FP_MAX_Z + 128)
+                continue;
+            for (j = n; j > 0 && bills[j - 1].z < z; j--)
+                bills[j] = bills[j - 1];
+            bills[j].objId = k;
+            bills[j].u = u;
+            bills[j].z = z;
+            n++;
+        }
+        CpuCopy16(&gPlttBufferFaded[256], &M->srcPal[256], 256 * 2);
+        for (k = 0; k < n; k++)
+            DrawBillboard(vram, &bills[k], FP_SMOOTH_COLW / 2, FP_SMOOTH_ROWH);
+    }
+    sFp.lastCamX = camX;
+    sFp.lastCamY = camY;
+    sFp.lastAngle = sFp.angleQ4;
+    sFp.lastSig = SmoothObjectSignature();
+}
+
 static void RenderBackPage(bool32 entering)
 {
     u32 page = entering ? 0 : sFp.page ^ 1;
@@ -801,7 +1278,26 @@ static void RenderBackPage(bool32 entering)
         sFp.vramLock = TRUE;
         REG_DISPCNT |= DISPCNT_FORCED_BLANK;   // the field BGs would show garbage while VRAM is overwritten
     }
-    Draw(page);
+    {
+        u32 t0 = gMain.vblankCounter1 * 228 + REG_VCOUNT;
+        s32 lines;
+
+        if (sFp.smooth)
+            DrawSmooth(page);
+        else
+        {
+            sFp.smoothReady = FALSE;
+            Draw(page);
+        }
+        lines = (s32)(gMain.vblankCounter1 * 228 + REG_VCOUNT - t0);
+        if (lines < 0)
+            lines = 0;   // VCOUNT / frame counter read raced a VBlank
+        gFpStats[0] = lines;
+        gFpStats[1]++;
+        gFpStats[2] += lines;
+        if ((u32)lines > gFpStats[3])
+            gFpStats[3] = lines;
+    }
     sFp.page = page;
     sFp.pendingEnter = entering;
     sFp.pendingFlip = TRUE;
@@ -890,10 +1386,21 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
             return FALSE;
         sFp.active = TRUE;
         sFp.headingValid = FALSE;
+        sFp.smooth = OW_FIRST_PERSON_SMOOTH;
     }
     else if (canAct && (nk & L_BUTTON))
     {
         return LeaveView(FALSE, FALSE);
+    }
+    else if (sFp.shown && canAct && (nk & SELECT_BUTTON) && !(nk & (START_BUTTON | R_BUTTON)))
+    {
+        // runtime switch between the smooth renderer and the textured-floor stepping renderer
+        sFp.smooth ^= 1;
+        sFp.smoothReady = FALSE;
+        sFp.angleQ4 = sFp.targetQ4 = HeadingBrads(sFp.heading) * 16;
+        sFp.dirty = TRUE;
+        *newKeys &= ~SELECT_BUTTON;
+        nk &= ~SELECT_BUTTON;
     }
     else if (sFp.shown && canAct && (nk & (START_BUTTON | SELECT_BUTTON | R_BUTTON)))
     {
@@ -936,6 +1443,30 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
         // Up = step along the view direction, Down = step back, Left/Right = turn the view only
         u16 dpad = DPAD_UP | DPAD_DOWN | DPAD_LEFT | DPAD_RIGHT;
 
+        bool32 turning = FALSE;
+
+        if (sFp.smooth)
+        {
+            // animate the view angle towards the heading; no stepping while it is still turning
+            s32 diff = sFp.targetQ4 - sFp.angleQ4;
+
+            if (diff)
+            {
+                sFp.angleQ4 += diff > FP_ANGLE_STEP ? FP_ANGLE_STEP : diff < -FP_ANGLE_STEP ? -FP_ANGLE_STEP : diff;
+                if (sFp.angleQ4 == sFp.targetQ4)
+                {
+                    sFp.angleQ4 &= 4095;
+                    sFp.targetQ4 = sFp.angleQ4;
+                }
+                else
+                    turning = TRUE;
+            }
+            if (turning)
+            {
+                hk &= ~(DPAD_UP | DPAD_DOWN);
+                nk &= ~(DPAD_UP | DPAD_DOWN);
+            }
+        }
         if (nk & DPAD_LEFT)
             sFp.turnQueue = -1;
         else if (nk & DPAD_RIGHT)
@@ -958,9 +1489,11 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
             if (GetPlayerFacingDirection() != moveDir)
                 ObjectEventTurn(&gObjectEvents[gPlayerAvatar.objectEventId], moveDir);
         }
-        if (sFp.turnQueue && canAct && !(hk & (DPAD_UP | DPAD_DOWN)))
+        if (sFp.turnQueue && canAct && !turning && !(hk & (DPAD_UP | DPAD_DOWN)))
         {
             sFp.heading = RotateHeading(sFp.heading, sFp.turnQueue);
+            if (sFp.smooth)
+                sFp.targetQ4 += sFp.turnQueue * 1024;
             sFp.turnQueue = 0;
         }
     }
@@ -983,8 +1516,18 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
             sFp.heading = GetPlayerFacingDirection();
         sFp.headingValid = TRUE;
         sFp.mapKey = mapKey;
+        sFp.angleQ4 = sFp.targetQ4 = HeadingBrads(sFp.heading) * 16;
+        sFp.smoothReady = FALSE;
         HideMapNamePopUpWindow();   // its tilemap/tile uploads would land in the bitmap pages
         RenderBackPage(TRUE);
+        return FALSE;
+    }
+
+    if (sFp.smooth)
+    {
+        SmoothCamera();
+        if (sFp.dirty || sFp.camX != sFp.lastCamX || sFp.camY != sFp.lastCamY || sFp.angleQ4 != sFp.lastAngle || SmoothObjectSignature() != sFp.lastSig)
+            RenderBackPage(FALSE);
         return FALSE;
     }
 
