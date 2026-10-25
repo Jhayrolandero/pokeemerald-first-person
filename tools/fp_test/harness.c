@@ -205,6 +205,53 @@ int main(int argc, char **argv) {
               fprintf(stderr, "regs r1=%08x r2=%08x r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x sp=%08x\n", r[1], r[2], r[3], r[4], r[5], r[6], r[7], sp);
               for (int i = 0; i < 12; i++) fprintf(stderr, "stack+%02x=%08x\n", i * 4, core->busRead32(core, sp + i * 4)); }
             fprintf(stderr, "watch: hit=%d frames=%u pc=%08x lr=%08x r0=%08x new=%02x\n", hit, f, pc, lr, r0, core->busRead8(core, addr));
+        } else if (!strcmp(cmd, "stepto")) {
+            // stepto PC MAXFRAMES: single-step until the program counter equals PC; print lr, sp and the stack
+            unsigned target, max, f = 0; int hit = 0; uint32_t ring[64]; unsigned rp = 0;
+            memset(ring, 0, sizeof ring);
+            sscanf(line, "%*s %x %u", &target, &max);
+            while (f < max && !hit) {
+                int32_t fc = core->frameCounter(core);
+                while (core->frameCounter(core) == fc) {
+                    uint32_t pc; core->step(core); core->readRegister(core, "pc", &pc);
+                    ring[rp++ & 63] = pc;
+                    if ((pc & ~1u) == target) { hit = 1; break; }
+                }
+                f++;
+            }
+            { uint32_t lr = 0, sp = 0; core->readRegister(core, "lr", &lr); core->readRegister(core, "sp", &sp);
+              fprintf(stderr, "stepto: hit=%d frames=%u lr=%08x sp=%08x\n", hit, f, lr, sp);
+              { uint32_t r0=0,r1=0,r2=0,r3=0; core->readRegister(core, "r0", &r0); core->readRegister(core, "r1", &r1); core->readRegister(core, "r2", &r2); core->readRegister(core, "r3", &r3);
+                fprintf(stderr, "stepto regs r0=%08x r1=%08x r2=%08x r3=%08x\n", r0, r1, r2, r3);
+                for (int i = 0; i < 80; i++) { int c = core->busRead8(core, r0 + i); if (!c) break; fputc(c, stderr); } fputc(10, stderr); }
+              for (int i = 0; i < 24; i++) fprintf(stderr, "stack+%02x=%08x\n", i * 4, core->busRead32(core, sp + i * 4));
+              for (unsigned i = 0; i < 64; i++) fprintf(stderr, "trace %08x\n", ring[(rp + i) & 63]); }
+        } else if (!strcmp(cmd, "stepall")) {
+            // stepall PC MAXFRAMES: print r0 and lr every time the program counter equals PC
+            unsigned target, max, f = 0;
+            sscanf(line, "%*s %x %u", &target, &max);
+            while (f < max) {
+                int32_t fc = core->frameCounter(core);
+                while (core->frameCounter(core) == fc) {
+                    uint32_t pc; core->step(core); core->readRegister(core, "pc", &pc);
+                    if ((pc & ~1u) == target) { uint32_t r0 = 0, lr = 0; core->readRegister(core, "r0", &r0); core->readRegister(core, "lr", &lr);
+                        fprintf(stderr, "stepall frame=%u r0=%08x lr=%08x\n", f, r0, lr); }
+                }
+                f++;
+            }
+        } else if (!strcmp(cmd, "teleport")) {
+            // teleport X Y [FACING]: write gSaveBlock1Ptr->pos and reload the field through CB2_ReturnToField (puts the player on that tile)
+            int x, y, face = -1; sscanf(line, "%*s %d %d %d", &x, &y, &face);
+            uint32_t sb1 = core->busRead32(core, symbolAddr("gSaveBlock1Ptr")), gm = symbolAddr("gMain");
+            core->busWrite16(core, sb1, (uint16_t)x); core->busWrite16(core, sb1 + 2, (uint16_t)y);
+            { uint32_t oe = symbolAddr("gObjectEvents"); for (int k = 0; k < 3; k++) { core->busWrite16(core, oe + 0x0C + k * 4, (uint16_t)(x + 7)); core->busWrite16(core, oe + 0x0E + k * 4, (uint16_t)(y + 7)); } }
+            if (face > 0) { uint32_t b = symbolAddr("gObjectEvents") + 0x18; core->busWrite8(core, b, (core->busRead8(core, b) & 0xF0) | (face & 0xF)); core->busWrite8(core, b, (core->busRead8(core, b) & 0x0F) | ((face & 0xF) << 4)); }
+            core->busWrite32(core, gm + 4, symbolAddr("CB2_ReturnToField") | 1);
+        } else if (!strcmp(cmd, "pokeface")) {
+            // pokeface IDX DIR: set an object event's facingDirection (1 S, 2 N, 3 W, 4 E)
+            unsigned idx, dir; sscanf(line, "%*s %u %u", &idx, &dir);
+            uint32_t b = symbolAddr("gObjectEvents") + idx * 0x24 + 0x18;
+            core->busWrite8(core, b, (core->busRead8(core, b) & 0xF0) | (dir & 0xF));
         } else if (!strcmp(cmd, "regs")) {
             // regs [TAG]: print display registers and gMain callbacks (resolve with: arm-none-eabi-nm -n pokeemerald.elf)
             char tag[64] = ""; if (strlen(line) > 5) { snprintf(tag, sizeof tag, "%s", line + 5); tag[strcspn(tag, "\n")] = 0; }
@@ -226,8 +273,12 @@ int main(int argc, char **argv) {
             fprintf(stderr, "FIELDCB fieldCallback=%08x fieldCallback2=%08x mainState=%u locked=%u\n", core->busRead32(core, symbolAddr("gFieldCallback")), core->busRead32(core, symbolAddr("gFieldCallback2")), core->busRead8(core, gm + 0x438), core->busRead8(core, symbolAddr("sLockFieldControls")));
             { uint32_t oe = symbolAddr("gObjectEvents"), sb1 = core->busRead32(core, symbolAddr("gSaveBlock1Ptr"));
               fprintf(stderr, "PLAYER obj0 tile=%d,%d prev=%d,%d facing=%u savepos=%d,%d map=%u/%u\n", (int16_t)core->busRead16(core, oe + 0x10), (int16_t)core->busRead16(core, oe + 0x12),
-                      (int16_t)core->busRead16(core, oe + 0x18), (int16_t)core->busRead16(core, oe + 0x1A), core->busRead8(core, oe + 0x18 + 8) & 0xF,
+                      (int16_t)core->busRead16(core, oe + 0x14), (int16_t)core->busRead16(core, oe + 0x16), core->busRead8(core, oe + 0x18) & 0xF,
                       (int16_t)core->busRead16(core, sb1), (int16_t)core->busRead16(core, sb1 + 2), core->busRead8(core, sb1 + 4), core->busRead8(core, sb1 + 5)); }
+            { uint32_t oe = symbolAddr("gObjectEvents"); fprintf(stderr, "OBJS");
+              for (int i = 0; i < 16; i++) { uint32_t b = oe + i * 0x24; if (core->busRead8(core, b) & 1) fprintf(stderr, " [%d]%d,%d gfx=%x face=%u inv=%u act=%u", i, (int16_t)core->busRead16(core, b + 0x10), (int16_t)core->busRead16(core, b + 0x12), core->busRead16(core, b + 4), core->busRead8(core, b + 0x18) & 15, (core->busRead8(core, b + 1) >> 5) & 1, core->busRead8(core, b + 0x1C));
+                if (i == 0 || (core->busRead16(core, b + 4) & 0x4000)) { uint32_t sp = symbolAddr("gSprites") + core->busRead8(core, b + 0x23) * 0x44; fprintf(stderr, "{type=%d act=%d cb=%08x sing=%u hm=%u ctl=%u}", (int16_t)core->busRead16(core, sp + 0x2E + 2), (int16_t)core->busRead16(core, sp + 0x2E + 4), core->busRead32(core, sp + 0x1C), (core->busRead8(core, b) >> 1) & 1, (core->busRead8(core, b) >> 6) & 1, core->busRead8(core, b + 0x22)); } }
+              fprintf(stderr, "\n"); }
             fprintf(stderr, "GMAIN cb1=%08x cb2=%08x saved=%08x vblank=%08x\n", core->busRead32(core, gm), core->busRead32(core, gm + 4), core->busRead32(core, gm + 8), core->busRead32(core, gm + 12));
         } else if (!strcmp(cmd, "fuzz")) {
             // fuzz SEED N: N random button actions (hold 1-12 frames, gap 0-25 frames), then idle 600 frames

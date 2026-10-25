@@ -1,0 +1,32 @@
+# follower trailing in free mode: walk, print player tile and follower tile each step; shots show the follower billboard
+load follower.state
+run 60
+regs start
+press L 4
+waitmode 4 400
+run 40
+regs start-fp
+hold UP 40
+regs
+hold UP 40
+regs
+hold UP 40
+regs
+hold RIGHT 40
+hold UP 40
+regs
+hold UP 60
+regs
+shot ft1.ppm
+hold DOWN 80
+regs
+hold DOWN 80
+regs
+release
+run 60
+regs end
+run 60
+regs end2
+run 120
+regs end3
+shot ft2.ppm

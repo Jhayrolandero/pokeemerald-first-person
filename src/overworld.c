@@ -1673,7 +1673,7 @@ static void DoCB1_Overworld(u16 newKeys, u16 heldKeys)
         else
         {
             if (FirstPerson_FreeMovement())
-                PlayerStep(0, newKeys & ~(DPAD_ANY | L_BUTTON | R_BUTTON), heldKeys & ~(DPAD_ANY | L_BUTTON | R_BUTTON));   // free movement moves the avatar itself
+                PlayerStep(FirstPerson_LedgeDir(), newKeys & ~(DPAD_ANY | L_BUTTON | R_BUTTON), heldKeys & ~(DPAD_ANY | L_BUTTON | R_BUTTON));   // free movement moves the avatar itself (only a ledge jump goes through PlayerStep's direction)
             else
                 PlayerStep(inputStruct.dpadDirection, newKeys, heldKeys);
         }

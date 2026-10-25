@@ -10,6 +10,7 @@ void FirstPerson_HeapReset(void);       // from InitHeap: forget the (now invali
 bool8 FirstPerson_IsActive(void);
 bool8 FirstPerson_VramLocked(void);
 void FirstPerson_EndOfInput(void);      // after the field input ran: drop the emulated "finished a step" avatar state
+u8 FirstPerson_LedgeDir(void);   // free movement pushed into a ledge: direction for PlayerStep (real ledge jump), else DIR_NONE
 bool8 FirstPerson_FreeMovement(void);   // free movement is driving the player: the normal PlayerStep must not move the avatar     // TRUE while the bitmap pages own VRAM (skip tileset animation uploads)
 #else
 static inline bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys) { return FALSE; }
@@ -18,6 +19,7 @@ static inline void FirstPerson_HeapReset(void) {}
 static inline bool8 FirstPerson_IsActive(void) { return FALSE; }
 static inline bool8 FirstPerson_VramLocked(void) { return FALSE; }
 static inline void FirstPerson_EndOfInput(void) {}
+static inline u8 FirstPerson_LedgeDir(void) { return 0; }
 static inline bool8 FirstPerson_FreeMovement(void) { return FALSE; }
 #endif
 

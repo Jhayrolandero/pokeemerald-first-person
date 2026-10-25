@@ -1,0 +1,34 @@
+# free movement: turn round (hold LEFT), walk north into Brendan's house door; the warp must fire through the normal door-warp check
+load follower.state
+run 120
+press L 4
+waitmode 4 400
+run 60
+regs start
+hold LEFT 60
+release
+run 10
+regs facing_north
+shot fp_follower_warp_00_facing_door.ppm
+hold UP 90
+release
+regs after_walking
+run 120
+shot fp_follower_warp_01_inside.ppm
+regs inside
+run 200
+regs settled
+shot fp_follower_warp_02_settled.ppm
+press L 4
+waitmode 4 400
+run 30
+regs inside_fp
+hold UP 30
+release
+run 20
+regs walked_in_house
+hold UP 40
+release
+run 120
+regs walked_more
+shot fp_follower_warp_03_walked.ppm

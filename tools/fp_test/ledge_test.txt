@@ -1,0 +1,19 @@
+# item 5: free movement walks into a south-facing ledge on Route 103; the real ledge jump must run (player ends 2 tiles south)
+load route103.state
+run 30
+teleport 10 4
+run 200
+regs start
+press L 4
+waitmode 4 400
+run 40
+regs fp
+hold UP 40
+regs walk
+hold UP 60
+regs jump
+run 30
+regs after
+shot ledge1.ppm
+hold UP 40
+regs more

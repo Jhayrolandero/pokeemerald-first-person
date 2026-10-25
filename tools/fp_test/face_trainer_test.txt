@@ -1,0 +1,21 @@
+# item 4: a trainer spots the player on Route 102; the player object and the view must turn towards the approaching trainer
+load route102.state
+run 60
+press L 4
+waitmode 4 400
+run 40
+regs start
+capture /private/tmp/claude-501/fp4/t 6
+hold LEFT 52
+regs turned
+hold DOWN 100
+regs sighted
+run 20
+regs approach1
+run 20
+regs approach2
+run 60
+regs approach3
+run 200
+regs later
+capture off

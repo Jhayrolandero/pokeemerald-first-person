@@ -1,0 +1,15 @@
+# item 2: render cost with an NPC right in front of the camera (adjacent tile, closer than the near-plane clamp)
+load littleroot.state
+run 30
+teleport 14 17 1
+run 220
+press L 4
+waitmode 4 400
+run 30
+shot near_a.ppm
+perf near_standing 60
+hold UP 1
+perf near_walk_up 40
+release
+run 20
+shot near_b.ppm

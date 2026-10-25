@@ -1,0 +1,4 @@
+load follower.state
+run 100
+regs
+shot a.ppm

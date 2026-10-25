@@ -5,6 +5,7 @@
 
 #include "decompress.h"
 #include "constants/event_object_movement.h"
+#include "constants/event_objects.h"
 #include "fieldmap.h"
 #include "event_object_movement.h"
 #include "field_message_box.h"
@@ -73,6 +74,8 @@
 #define FP_PAGE_SIZE    0xA000
 #define FP_DECOMP_HEADROOM 14000   // the tANS decoder allocates ~11 KB of scratch on top
 #define FP_DECOMP_SLACK 128        // the smol decoder can write a little past the nominal output size
+#define FP_TRAIL_MAX    4
+#define FP_BILL_NEAR    320            // billboards closer than this (Q8 cells) are drawn at this distance
 #define FP_WIN          17            // cached cell window around the player (+-8)
 #define FP_IWRAM        ARM_FUNC __attribute__((section(".iwram.code"))) __attribute__((noinline))
 
@@ -114,7 +117,7 @@ struct FpMem
     u32 tiles[];                      // decompressed primary + secondary tileset tiles (size depends on the map)
 };
 
-static struct
+static EWRAM_DATA struct
 {
     bool8 active;      // user wants the view
     bool8 shown;       // Mode 4 is on screen
@@ -128,6 +131,11 @@ static struct
     u8 heading;        // view direction (independent of the player's facing: stepping back does not turn)
     bool8 headingValid;
     bool8 interactPending;  // after the reload, feed one A press to the normal field code
+    u8 ledgeDir;            // free mode: walked into a ledge in the view direction: PlayerStep gets this direction (real ledge jump)
+    bool8 emulated;         // free mode: this tick's finished-step state was faked in FreeStep (cleared again in EndOfInput)
+    u8 trailN;              // free mode: tiles the player has left that the follower still has to walk to (oldest first)
+    s16 trailX[FP_TRAIL_MAX], trailY[FP_TRAIL_MAX];
+    bool8 facedTrainer;     // this trainer approach already turned the player and the view
     bool8 reshowMessage;    // a script's text box was dropped by the reload: draw it again from gStringVar4
     s8 turnQueue;      // -1 left, +1 right, applied when the player is on a tile centre
     u16 mapKey;
@@ -150,7 +158,7 @@ static struct
     const void *sheetKey[3];
     u8 sheetNext;
     struct FpMem *m;
-} sFp;
+} sFp = {0};
 
 #define M (sFp.m)
 
@@ -549,6 +557,23 @@ static void BillColumn(u16 *dst, const u8 *col, u32 odd, s32 syFix, s32 hInv, s3
     }
 }
 
+static EWRAM_DATA s32 sViewDirX = 0, sViewDirY = 0, sViewRightX = 0, sViewRightY = 0;   // camera forward / right (Q8), set before the billboards are drawn
+
+// Is this one of the animation tables laid out like the standard one (face S/N/W/E, go S/N/W/E, ...: direction = animNum & 3)?
+static bool32 StandardAnimLayout(const struct ObjectEvent *oe, const struct ObjectEventGraphicsInfo *info)
+{
+    if (info->inanimate)
+        return FALSE;
+    if (oe->graphicsId & OBJ_EVENT_MON)
+        return TRUE;   // OW mons / followers use the "following" table, same layout
+    return info->anims == GetObjectEventGraphicsInfo(OBJ_EVENT_GFX_BOY_1)->anims
+        || info->anims == GetObjectEventGraphicsInfo(OBJ_EVENT_GFX_BRENDAN_NORMAL)->anims
+        || info->anims == GetObjectEventGraphicsInfo(OBJ_EVENT_GFX_MAY_NORMAL)->anims;
+}
+
+// test hook (tools/fp_test): the last 8 billboards drawn: graphicsId, facing, sprite animNum, chosen animNum, image, hflip, z, u
+EWRAM_DATA u32 gFpBillLog[64] = {0};
+EWRAM_DATA u32 gFpBillLogN = 0;
 static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
 {
     const struct ObjectEvent *oe = &gObjectEvents[b->objId];
@@ -556,7 +581,7 @@ static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
     const struct ObjectEventGraphicsInfo *info = GetObjectEventGraphicsInfo(oe->graphicsId);
     u32 shape = info->oam->shape, size = info->oam->size;
     s32 wt, ht, w, h, sw, sh, left, top, bottom, c, wInv, hInv, c0, c1;
-    s32 imageValue = 0, tileOffset;
+    s32 imageValue = 0, tileOffset, zD;
     const u8 *frame;
     u32 palBase, lvl, hflip;
 
@@ -566,10 +591,40 @@ static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
     ht = sTilesH[shape][size];
     w = wt * 8;
     h = ht * 8;
-    if (spr->anims && spr->anims[spr->animNum][spr->animCmdIndex].type >= 0)
-        imageValue = spr->anims[spr->animNum][spr->animCmdIndex].frame.imageValue;
-    hflip = spr->oam.matrixNum & ST_OAM_HFLIP;
+    {
+        // Frame choice: keep the current animation group (standing / walking, so the walk cycle runs), but pick the direction
+        // from the angle between the camera and the way the object faces: toward us = front, away = back, sideways = left/right
+        // (right is the left frame flipped by the animation command itself).
+        u32 animNum = spr->animNum;
+        const union AnimCmd *cmd;
 
+        if (spr->anims && animNum < 12 && oe->facingDirection >= DIR_SOUTH && oe->facingDirection <= DIR_EAST && StandardAnimLayout(oe, info))
+        {
+            s32 ox = oe->facingDirection == DIR_EAST ? 256 : oe->facingDirection == DIR_WEST ? -256 : 0;
+            s32 oy = oe->facingDirection == DIR_SOUTH ? 256 : oe->facingDirection == DIR_NORTH ? -256 : 0;
+            s32 dotF = (ox * sViewDirX + oy * sViewDirY) >> 8, dotR = (ox * sViewRightX + oy * sViewRightY) >> 8;
+            u32 idx;
+
+            if ((dotF < 0 ? -dotF : dotF) >= (dotR < 0 ? -dotR : dotR))
+                idx = dotF < 0 ? 0 : 1;      // facing the camera: front (south frames); facing away: back (north frames)
+            else
+                idx = dotR > 0 ? 3 : 2;      // facing the camera's right: east frames; left: west frames
+            animNum = (animNum & ~3u) | idx;
+        }
+        cmd = spr->anims ? &spr->anims[animNum][spr->animCmdIndex] : NULL;
+        if (cmd && cmd->type < 0)
+            cmd = &spr->anims[animNum][0];
+        if (cmd && cmd->type >= 0)
+        {
+            imageValue = cmd->frame.imageValue;
+            hflip = cmd->frame.hFlip;
+            { u32 *d = &gFpBillLog[(gFpBillLogN++ & 7) * 8]; d[0] = oe->graphicsId; d[1] = oe->facingDirection; d[2] = spr->animNum; d[3] = animNum; d[4] = imageValue; d[5] = hflip; d[6] = b->z; d[7] = (u16)b->u; }
+        }
+        else
+        {
+            hflip = spr->oam.matrixNum & ST_OAM_HFLIP;
+        }
+    }
     if (spr->usingSheet)
     {
         const u8 *base = info->images->data;
@@ -612,13 +667,16 @@ static void DrawBillboard(u8 *vram, const struct FpBill *b, s32 cs, s32 rs)
         frame = info->images[imageValue].data;
     }
 
-    sw = w * 1600 / b->z;
-    sh = h * 1600 / b->z;
-    left = 120 + b->u * FP_FOCAL / b->z - sw / 2;
-    bottom = FP_HORIZON + FP_EYE * FP_FOCAL / b->z;
+    // Near plane: a sprite closer than 1.25 cells is drawn as if it were 1.25 cells away. It keeps a sane size (and a bounded
+    // cost) instead of becoming a giant block; its depth test still uses the real distance.
+    zD = b->z < FP_BILL_NEAR ? FP_BILL_NEAR : b->z;
+    sw = w * 1600 / zD;
+    sh = h * 1600 / zD;
+    left = 120 + b->u * FP_FOCAL / zD - sw / 2;
+    bottom = FP_HORIZON + FP_EYE * FP_FOCAL / zD;
     top = bottom - sh;
     palBase = 256 + spr->oam.paletteNum * 16;
-    lvl = FogLevel(b->z);
+    lvl = FogLevel(zD);
     if (sw < 1 || sh < 1)
         goto done;
     wInv = (w << 16) / sw;
@@ -742,6 +800,10 @@ static void Draw(u32 page)
         struct FpBill bills[12];
         u32 n = CollectBillboards(bills, px, py, fx, fy, rx, ry), i;
 
+        sViewDirX = fx * 256;
+        sViewDirY = fy * 256;
+        sViewRightX = rx * 256;
+        sViewRightY = ry * 256;
         for (i = 0; i < n; i++)
             DrawBillboard(vram, &bills[i], 1, 1);
     }
@@ -843,6 +905,7 @@ static void Release(void)
 
 void FirstPerson_HeapReset(void)
 {
+    sFp.trailN = 0;
     M = NULL;
     memset(sFp.sheetBuf, 0, sizeof(sFp.sheetBuf));
     sFp.shown = FALSE;
@@ -1271,6 +1334,10 @@ static void DrawSmooth(u32 page)
             n++;
         }
         CpuCopy16(&gPlttBufferFaded[256], &M->srcPal[256], 256 * 2);
+        sViewDirX = dirX;
+        sViewDirY = dirY;
+        sViewRightX = rightX;
+        sViewRightY = rightY;
         for (k = 0; k < n; k++)
             DrawBillboard(vram, &bills[k], FP_SMOOTH_COLW / 2, FP_SMOOTH_ROWH);
     }
@@ -1332,6 +1399,38 @@ static void FreeSyncToPlayer(void)
     }
 }
 
+static void TrailPush(s32 x, s32 y)
+{
+    u32 i;
+
+    if (sFp.trailN == FP_TRAIL_MAX)
+    {
+        for (i = 1; i < FP_TRAIL_MAX; i++)
+        {
+            sFp.trailX[i - 1] = sFp.trailX[i];
+            sFp.trailY[i - 1] = sFp.trailY[i];
+        }
+        sFp.trailN--;
+    }
+    sFp.trailX[sFp.trailN] = x;
+    sFp.trailY[sFp.trailN] = y;
+    sFp.trailN++;
+}
+
+// Pushing straight into a ledge in the direction it jumps: ask the normal field code for the jump (PlayerStep gets the direction,
+// CheckForPlayerAvatarCollision reports COLLISION_LEDGE_JUMP and PlayerJumpLedge runs, exactly as for a d-pad press).
+static void LedgeCheck(enum Direction dir, s32 f, s32 s)
+{
+    const struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
+    s16 x = pl->currentCoords.x, y = pl->currentCoords.y;
+
+    if (f <= 0 || s != 0 || dir != sFp.heading)
+        return;
+    MoveCoords(dir, &x, &y);
+    if (GetLedgeJumpDirection(x, y, dir) != DIR_NONE)
+        sFp.ledgeDir = dir;
+}
+
 static void FreeStep(s32 f, s32 s, bool32 run)
 {
     struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
@@ -1339,7 +1438,7 @@ static void FreeStep(s32 f, s32 s, bool32 run)
     s32 fwdX = SinB(a), fwdY = -CosB(a), rightX = CosB(a), rightY = SinB(a);
     s32 sp = run ? FP_FREE_RUN : FP_FREE_WALK;
     s32 vx = fwdX * f + rightX * s, vy = fwdY * f + rightY * s;
-    s32 dx, dy, nx, ny;
+    s32 dx, dy, nx, ny, i;
 
     if (f && s)
     {
@@ -1353,20 +1452,31 @@ static void FreeStep(s32 f, s32 s, bool32 run)
         nx = sFp.freeX + dx;
         if (!FreeBoxBlocked(nx, sFp.freeY, dx > 0 ? DIR_EAST : DIR_WEST))
             sFp.freeX = nx;
+        else
+            LedgeCheck(dx > 0 ? DIR_EAST : DIR_WEST, f, s);
     }
     if (dy)
     {
         ny = sFp.freeY + dy;
         if (!FreeBoxBlocked(sFp.freeX, ny, dy > 0 ? DIR_SOUTH : DIR_NORTH))
             sFp.freeY = ny;
+        else
+            LedgeCheck(dy > 0 ? DIR_SOUTH : DIR_NORTH, f, s);
     }
     if ((sFp.freeX >> 8) != pl->currentCoords.x || (sFp.freeY >> 8) != pl->currentCoords.y)
     {
         // entered a new tile: move the real player there and let the normal "finished a step" hooks run this tick
         s32 tdx = (sFp.freeX >> 8) - pl->currentCoords.x, tdy = (sFp.freeY >> 8) - pl->currentCoords.y;
 
+        s16 fromX = pl->currentCoords.x, fromY = pl->currentCoords.y;
+
         MoveObjectEventToMapCoords(pl, sFp.freeX >> 8, sFp.freeY >> 8);
         ObjectEventUpdateElevation(pl, &gSprites[pl->spriteId]);
+        // Follower: remember the tile we left; FollowerTrail() feeds it to the real follower logic one tile at a time
+        TrailPush(fromX, fromY);
+        if (tdx && tdy)
+            TrailPush(fromX + tdx, fromY);   // diagonal: pass the corner so every hop is one tile
+        pl->movementDirection = tdx > 0 ? DIR_EAST : tdx < 0 ? DIR_WEST : tdy > 0 ? DIR_SOUTH : DIR_NORTH;
         // the field camera normally follows the player's sprite one tile at a time; do the same tile step by hand so that
         // gSaveBlock1Ptr->pos, map connections (route changes) and object event spawning / despawning stay in step
         if (tdx >= -1 && tdx <= 1 && tdy >= -1 && tdy <= 1)
@@ -1378,10 +1488,16 @@ static void FreeStep(s32 f, s32 s, bool32 run)
                 // a map connection was crossed: the new map has its own coordinate origin
                 sFp.freeX += gCamera.x * 256;
                 sFp.freeY += gCamera.y * 256;
+                for (i = 0; i < sFp.trailN; i++)
+                {
+                    sFp.trailX[i] += gCamera.x;
+                    sFp.trailY[i] += gCamera.y;
+                }
             }
         }
         gPlayerAvatar.tileTransitionState = T_TILE_CENTER;
         gPlayerAvatar.runningState = MOVING;
+        sFp.emulated = TRUE;
     }
 }
 
@@ -1404,6 +1520,19 @@ static void FreeInput(u16 *newKeys, u16 *heldKeys, u16 nk, u16 hk, bool32 locked
     s32 s = (hk & R_BUTTON) ? 1 : (hk & L_BUTTON) ? -1 : 0;
     enum Direction heading;
 
+    if (!locked && (gPlayerAvatar.runningState == MOVING || gPlayerAvatar.tileTransitionState == T_TILE_TRANSITION))
+    {
+        // a real movement is running (ledge jump): glide the view to where the avatar is going, no input
+        const struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
+        s32 gx = pl->currentCoords.x * 256 + 128 - sFp.freeX, gy = pl->currentCoords.y * 256 + 128 - sFp.freeY;
+
+        sFp.freeX += gx > 16 ? 16 : gx < -16 ? -16 : gx;
+        sFp.freeY += gy > 16 ? 16 : gy < -16 ? -16 : gy;
+        sFp.targetQ4 = sFp.angleQ4;
+        *newKeys &= ~strip;
+        *heldKeys &= ~strip;
+        return;
+    }
     FreeSyncToPlayer();
     if (!locked)
     {
@@ -1432,20 +1561,76 @@ static void FreeInput(u16 *newKeys, u16 *heldKeys, u16 nk, u16 hk, bool32 locked
     }
 }
 
+u8 FirstPerson_LedgeDir(void)
+{
+    u8 d = sFp.ledgeDir;
+
+    sFp.ledgeDir = DIR_NONE;
+    return d;
+}
+
 bool8 FirstPerson_FreeMovement(void)
 {
     return sFp.shown && sFp.free;
+}
+
+// Free mode teleports the player from tile to tile, so the game's own follower logic (which walks the follower to the player's
+// previousCoords while the player's copyable movement is WALK) never sees a step. Feed it the trail of tiles the player left, one
+// at a time, after the field input has run: the follower then walks and animates through the normal code path.
+static void FollowerTrail(void)
+{
+    struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
+    struct ObjectEvent *fo;
+
+    if (!sFp.free || !sFp.trailN)
+        return;
+    fo = GetFollowerObject();
+    if (fo == NULL || !IsFollowerVisible())
+    {
+        sFp.trailN = 0;
+        return;
+    }
+    // pop the tiles the follower has reached (a hidden follower is only shadowing the player: it has not come out yet)
+    while (sFp.trailN && !fo->invisible && fo->currentCoords.x == sFp.trailX[0] && fo->currentCoords.y == sFp.trailY[0])
+    {
+        u32 i;
+
+        for (i = 1; i < sFp.trailN; i++)
+        {
+            sFp.trailX[i - 1] = sFp.trailX[i];
+            sFp.trailY[i - 1] = sFp.trailY[i];
+        }
+        sFp.trailN--;
+    }
+    if (!sFp.trailN)
+        return;
+    if (!fo->invisible && !fo->singleMovementActive)
+    {
+        s32 d = fo->currentCoords.x - sFp.trailX[0], e = fo->currentCoords.y - sFp.trailY[0];
+
+        if ((d < 0 ? -d : d) + (e < 0 ? -e : e) > 1)
+            MoveObjectEventToMapCoords(fo, sFp.trailX[0], sFp.trailY[0]);   // fell too far behind: put it on the trail
+    }
+    pl->previousCoords.x = sFp.trailX[0];
+    pl->previousCoords.y = sFp.trailY[0];
+    pl->playerCopyableMovement = COPY_MOVE_WALK;
+    // The follower's own callback runs after the player's, whose held "face" action collapses previousCoords again before the
+    // follower looks at it. So run the follower's active-state logic here, in the same state it would be called in.
+    if (gSprites[fo->spriteId].data[1] == 1)   // sTypeFuncId 1 = active (0 = shadowing, 2 = executing a step)
+        MovementType_FollowPlayer_Active(fo, &gSprites[fo->spriteId]);
 }
 
 void FirstPerson_EndOfInput(void)
 {
     // The step was only emulated for this tick. If the field input started a script (trainer sight, warp...) instead of calling
     // PlayerStep, the avatar would stay in MOVING and scripts waiting for IsPlayerStandingStill() would never continue.
-    if (sFp.free && gPlayerAvatar.runningState == MOVING)
+    if (sFp.emulated)
     {
+        sFp.emulated = FALSE;
         gPlayerAvatar.runningState = NOT_MOVING;
         gPlayerAvatar.tileTransitionState = T_NOT_MOVING;
     }
+    FollowerTrail();
     // A script was just started by the field input (trainer sight, coord event, bg event...). It has not run yet: park it and
     // reload now. One frame later it would already have created tasks (trainer approach, movement) that the reload destroys.
     // (not for trainer sight: its approach runs on tasks and object movement that the reload would destroy; it is parked later,
@@ -1525,6 +1710,7 @@ static bool32 LeaveView(bool32 keepWanted, bool32 continueScript)
     if (!keepWanted)
         sFp.headingValid = FALSE;
     sFp.turnQueue = 0;
+    sFp.trailN = 0;
     Release();
     if (!wasShown)
         return FALSE;
@@ -1545,6 +1731,40 @@ static bool32 LeaveView(bool32 keepWanted, bool32 continueScript)
         SetMainCallback2(CB2_ReturnToField);
     }
     return TRUE;
+}
+
+// A trainer spotted the player: turn the player object and the view towards the approaching trainer (the real game keeps the
+// player facing wherever it was; with the camera glued to the facing direction the approach would play out behind our back).
+static void FaceTrainer(void)
+{
+    u8 id = GetCurrentApproachingTrainerObjectEventId();
+    struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
+    s32 diff;
+
+    if (id < OBJECT_EVENTS_COUNT && !sFp.facedTrainer)
+    {
+        const struct ObjectEvent *tr = &gObjectEvents[id];
+        s32 dx = tr->currentCoords.x - pl->currentCoords.x, dy = tr->currentCoords.y - pl->currentCoords.y;
+        s32 ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;
+
+        if (ax || ay)
+        {
+            sFp.heading = ax >= ay ? (dx > 0 ? DIR_EAST : DIR_WEST) : (dy > 0 ? DIR_SOUTH : DIR_NORTH);
+            sFp.headingValid = TRUE;
+            sFp.targetQ4 = HeadingBrads(sFp.heading) * 16;
+            ObjectEventTurn(pl, sFp.heading);
+        }
+        sFp.facedTrainer = TRUE;
+    }
+    // glide the view round the short way
+    diff = (((sFp.targetQ4 - sFp.angleQ4 + 2048) & 4095) - 2048);
+    if (diff)
+    {
+        s32 step = diff > FP_FREE_TURN * 2 ? FP_FREE_TURN * 2 : diff < -FP_FREE_TURN * 2 ? -FP_FREE_TURN * 2 : diff;
+
+        sFp.angleQ4 = (sFp.angleQ4 + step) & 4095;
+        sFp.dirty = TRUE;
+    }
 }
 
 bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
@@ -1631,6 +1851,11 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
         sFp.vramLock = FALSE;
         sFp.shown = FALSE;
     }
+
+    if (sFp.shown && gNoOfApproachingTrainers != 0)
+        FaceTrainer();
+    else
+        sFp.facedTrainer = FALSE;
 
     if (sFp.shown && ((ScriptContext_IsEnabled() && gNoOfApproachingTrainers == 0) || !IsFieldMessageBoxHidden()))
     {
@@ -1726,6 +1951,7 @@ bool32 FirstPerson_Update(u16 *newKeys, u16 *heldKeys)
         sFp.mapKey = mapKey;
         sFp.angleQ4 = sFp.targetQ4 = HeadingBrads(sFp.heading) * 16;
         sFp.smoothReady = FALSE;
+        sFp.trailN = 0;
         HideMapNamePopUpWindow();   // its tilemap/tile uploads would land in the bitmap pages
         RenderBackPage(TRUE);
         return FALSE;

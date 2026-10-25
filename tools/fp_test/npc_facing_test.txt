@@ -1,0 +1,44 @@
+# item 1/2: look at the (south-facing) Littleroot NPC at 21,25 from north, south, east and west; the billboard frame must follow the camera angle
+load littleroot.state
+run 30
+teleport 14 15
+run 220
+press L 4
+waitmode 4 400
+run 20
+run 30
+regs spotN
+shot npc_N.ppm
+load littleroot.state
+run 30
+teleport 14 21
+run 220
+press L 4
+waitmode 4 400
+run 20
+hold LEFT 52
+run 30
+regs spotS
+shot npc_S.ppm
+load littleroot.state
+run 30
+teleport 18 18
+run 220
+press L 4
+waitmode 4 400
+run 20
+hold RIGHT 26
+run 30
+regs spotE
+shot npc_E.ppm
+load littleroot.state
+run 30
+teleport 10 18
+run 220
+press L 4
+waitmode 4 400
+run 20
+hold LEFT 26
+run 30
+regs spotW
+shot npc_W.ppm
